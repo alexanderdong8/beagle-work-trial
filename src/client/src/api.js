@@ -1,4 +1,6 @@
 export async function apiGet(path) {
+  // Small fetch wrapper keeps page components focused on workflow state rather
+  // than repeated response/error boilerplate.
   const response = await fetch(path);
   if (!response.ok) {
     throw new Error(await errorMessage(response));

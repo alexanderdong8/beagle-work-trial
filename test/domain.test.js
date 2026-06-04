@@ -5,11 +5,16 @@ const test = require("node:test");
 const { daysBetween } = require("../src/server/utils/dates");
 const { hasAirFilterDeliveryRider } = require("../src/server/services/normalizeRiders");
 const { normalizeProperties } = require("../src/server/services/normalizeProperties");
+const { toCsv } = require("../src/server/services/exportService");
 
 test("normalizes known air-filter rider labels", () => {
   assert.equal(hasAirFilterDeliveryRider("{Free Airfilters Delivery}"), true);
   assert.equal(hasAirFilterDeliveryRider("{Airfilters Delivery ($4)}"), true);
+  assert.equal(hasAirFilterDeliveryRider("{AIR FILTERS delivery}"), true);
+  assert.equal(hasAirFilterDeliveryRider("{Air-filters Delivery (promo)}"), true);
+  assert.equal(hasAirFilterDeliveryRider("{Filters for Air Delivery}"), true);
   assert.equal(hasAirFilterDeliveryRider("{Credit Reporting,Move-in Concierge}"), false);
+  assert.equal(hasAirFilterDeliveryRider("{Air Filter Replacement}"), false);
 });
 
 test("calculates date-only day differences", () => {
@@ -76,4 +81,32 @@ test("normalizes duplicate property ids, duplicate tenant assignments, and fallb
     result.normalizedProperties.find((property) => property.id.startsWith("fallback-3-main")).shipment_interval_days,
     90,
   );
+});
+
+test("exports split names and raw text ZIP codes", () => {
+  const csv = toCsv([
+    {
+      tenant_id: 175236,
+      property_id: "fallback-7781-wilson-mountains",
+      batch_id: 1,
+      first_name: "Kizzy",
+      last_name: "O'Keefe",
+      address1: "7781 Wilson Mountains",
+      address2: "Apt. 269",
+      city: "Port Zachariahshire",
+      state: "OK",
+      zip: "06323",
+      shipment_date: "2026-04-24",
+      minimum_next_shipment_date: "2026-07-23",
+    },
+  ]);
+
+  const [header, row] = csv.trim().split("\n");
+  assert.equal(
+    header,
+    "tenant_id,property_id,batch_id,first_name,last_name,address1,address2,city,state,zip,shipment_date,minimum_next_shipment_date",
+  );
+  assert.match(row, /,Kizzy,O'Keefe,/);
+  assert.match(row, /,06323,/);
+  assert.doesNotMatch(row, /'06323/);
 });

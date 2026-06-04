@@ -1,5 +1,13 @@
 "use strict";
 
+/**
+ * Shipment export service.
+ *
+ * Exporting is a write operation: it creates a batch, persists ordered
+ * shipments, and then renders a CSV from the persisted batch rows. This avoids
+ * having a CSV that cannot be traced back to database state.
+ */
+
 const { addDays } = require("../utils/dates");
 const { csvEscape } = require("../utils/strings");
 const { getEligibility } = require("./eligibilityService");
@@ -8,7 +16,8 @@ const CSV_COLUMNS = [
   "tenant_id",
   "property_id",
   "batch_id",
-  "recipient_name",
+  "first_name",
+  "last_name",
   "address1",
   "address2",
   "city",
@@ -19,6 +28,8 @@ const CSV_COLUMNS = [
 ];
 
 function toCsv(rows) {
+  // Keep CSV generation deliberately small and explicit. The selected columns
+  // are shipping/audit fields only, not internal eligibility evidence.
   const lines = [CSV_COLUMNS.join(",")];
   for (const row of rows) {
     lines.push(CSV_COLUMNS.map((column) => csvEscape(row[column])).join(","));
@@ -27,6 +38,8 @@ function toCsv(rows) {
 }
 
 function getBatchRows(db, batchId) {
+  // Rebuild the CSV from persisted shipment rows so a past export can be
+  // downloaded again without relying on temporary files.
   return db
     .prepare(
       `
@@ -34,7 +47,8 @@ function getBatchRows(db, batchId) {
           s.tenant_id,
           s.property_id,
           s.batch_id,
-          t.first_name || ' ' || t.last_name AS recipient_name,
+          t.first_name,
+          t.last_name,
           t.address1,
           t.address2,
           t.city,
@@ -57,6 +71,8 @@ function createExportBatch(db, options = {}) {
   const selected = eligibility.eligible;
 
   const tx = db.transaction(() => {
+    // Batch is the audit boundary: every shipment row created below points back
+    // to this export run.
     const batchInfo = db
       .prepare(
         `
@@ -76,6 +92,8 @@ function createExportBatch(db, options = {}) {
 
     db.prepare("UPDATE shipment_batches SET csv_filename = ? WHERE id = ?").run(csvFilename, batchId);
 
+    // Ordered rows immediately count for cooldown, preventing duplicate exports
+    // before the shipping partner returns tracking information.
     const insertShipment = db.prepare(
       `
         INSERT INTO shipments

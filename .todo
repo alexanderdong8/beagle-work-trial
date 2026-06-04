@@ -1,0 +1,5 @@
+1. go through the implementation.md manually and look through it and have it explain everything better in a more streamlined way
+2. make sure you understnad what all the different files are doing and that a person can easily go through and find the right file they need for a certain functionality.
+3. understnad the schema changes
+4. understnad why i included the columns in the exported csv, why did i choose a web app
+5. understnad how i normalized riders

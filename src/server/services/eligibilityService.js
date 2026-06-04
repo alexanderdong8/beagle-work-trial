@@ -1,8 +1,15 @@
 "use strict";
 
+/**
+ * Eligibility engine.
+ *
+ * This service is intentionally independent from Express/React. The API route
+ * and export service call this function so the core business rules are easy to
+ * test and explain in the writeup.
+ */
+
 const { daysBetween, isIsoDate } = require("../utils/dates");
 const { tenantFullName } = require("../utils/strings");
-const { hasAirFilterDeliveryRider } = require("./normalizeRiders");
 
 const DEFAULT_AS_OF_DATE = "2026-04-24";
 const COOLDOWN_STATUSES = ["historical", "ordered", "shipped", "delivered", "confirmed"];
@@ -15,6 +22,8 @@ function assertAsOfDate(asOf = DEFAULT_AS_OF_DATE) {
 }
 
 function buildMap(rows, keyField, valueFactory) {
+  // Convert SQL row arrays into hash maps once, so the tenant evaluation loop
+  // can use average-case O(1) lookups instead of repeated linear scans.
   const map = new Map();
   for (const row of rows) {
     map.set(row[keyField], valueFactory(row));
@@ -23,6 +32,8 @@ function buildMap(rows, keyField, valueFactory) {
 }
 
 function getDuplicateTenantIds(db) {
+  // Duplicate source tenants are preserved in raw data, but the duplicate id is
+  // excluded from operational export so the app behaves on cleaned data.
   return new Set(
     db
       .prepare(
@@ -39,28 +50,27 @@ function getDuplicateTenantIds(db) {
 }
 
 function getEnrollmentQualifiedTenantIds(db) {
+  // Rider strings are normalized during migration/startup into
+  // has_air_filter_delivery, so Ship Batch does not reparse rider labels.
   const rows = db
     .prepare(
       `
-        SELECT tenant_id, riders
+        SELECT DISTINCT tenant_id
         FROM enrollments
         WHERE active = 1
           AND product = 'Renters Kit'
+          AND has_air_filter_delivery = 1
         ORDER BY tenant_id
       `,
     )
     .all();
 
-  const qualified = new Set();
-  for (const row of rows) {
-    if (hasAirFilterDeliveryRider(row.riders)) {
-      qualified.add(row.tenant_id);
-    }
-  }
-  return qualified;
+  return new Set(rows.map((row) => row.tenant_id));
 }
 
 function getLookupMaps(db, asOf) {
+  // These three result sets become maps used by the core loop:
+  // tenant -> property, property -> interval, property -> latest shipment date.
   const assignments = db
     .prepare(
       `
@@ -101,6 +111,7 @@ function getLookupMaps(db, asOf) {
 }
 
 function formatTenantRow(tenant, property, extra = {}) {
+  // Keep API responses consistent for eligible and excluded tenants.
   return {
     tenant_id: tenant.id,
     recipient_name: tenantFullName(tenant),
@@ -133,6 +144,8 @@ function getEligibility(db, options = {}) {
   const excluded = [];
   const cooldownByProperty = [];
 
+  // Build a property-level cooldown readout for debugging/future UI. The main
+  // app no longer renders this by default, but the API remains useful.
   for (const [propertyId, property] of propertyLookup) {
     const lastShipmentDate = propertyLastShipmentDate.get(propertyId) || null;
     const interval = propertyIntervals.get(propertyId);
@@ -146,6 +159,9 @@ function getEligibility(db, options = {}) {
     });
   }
 
+  // Deterministic one-pass selection. Tenants are sorted by id, and the first
+  // eligible tenant in a property wins the batch. Later tenants in that same
+  // property are skipped via selectedPropertyIds.has(propertyId).
   for (const tenant of tenants) {
     const propertyId = tenantToProperty.get(tenant.id);
     const property = propertyLookup.get(propertyId);

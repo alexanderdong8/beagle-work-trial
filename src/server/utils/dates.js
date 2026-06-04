@@ -1,5 +1,7 @@
 "use strict";
 
+// Date helpers use ISO date-only strings and UTC math so local timezone offsets
+// cannot move a shipment from one calendar day to another.
 const MS_PER_DAY = 86_400_000;
 
 function isIsoDate(value) {

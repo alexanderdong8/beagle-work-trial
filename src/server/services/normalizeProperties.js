@@ -1,5 +1,12 @@
 "use strict";
 
+/**
+ * Property normalization.
+ *
+ * The source JSON is intentionally messy. This module turns it into deterministic
+ * operational data while preserving a record of every issue and resolution.
+ */
+
 const fs = require("fs");
 const path = require("path");
 const { repoRoot } = require("../db");
@@ -19,6 +26,7 @@ function slugify(value) {
 }
 
 function normalizedDuplicatePropertyId(rawId, property, usedIds) {
+  // Prefer a readable name-based id for Riverbend Annex over an opaque suffix.
   const nameSlug = slugify(property.name);
   const candidate = nameSlug && nameSlug !== slugify(rawId) ? `prop-${nameSlug}` : `${rawId}-2`;
 
@@ -30,6 +38,8 @@ function normalizedDuplicatePropertyId(rawId, property, usedIds) {
 }
 
 function tenantIdentityKey(tenant) {
+  // Full identity duplicate detection uses name plus address. That catches the
+  // Casey Morgan fixture without merging people who merely share a last name.
   return [
     tenant.first_name,
     tenant.last_name,
@@ -44,6 +54,8 @@ function tenantIdentityKey(tenant) {
 }
 
 function normalizeProperties(rawProperties, tenants) {
+  // First pass: normalize the supplied property groups and apply "first tenant
+  // assignment wins" for tenants listed in more than one property.
   const normalizedProperties = [];
   const tenantProperties = [];
   const dataQualityIssues = [];
@@ -114,6 +126,8 @@ function normalizeProperties(rawProperties, tenants) {
   const fallbackPropertiesById = new Map();
   const unassignedTenantIds = [];
 
+  // Second pass: every tenant needs an operational property assignment. Missing
+  // JSON assignments receive address-based fallback properties with 90 days.
   for (const tenant of tenants) {
     if (tenantToProperty.has(tenant.id)) continue;
 
@@ -150,6 +164,8 @@ function normalizeProperties(rawProperties, tenants) {
   normalizedProperties.push(...fallbackPropertiesById.values());
 
   const identityGroups = new Map();
+  // Third pass: identify duplicate active tenant identities so exports operate
+  // on canonical rows without deleting raw fixture data.
   for (const tenant of tenants) {
     const key = tenantIdentityKey(tenant);
     if (!identityGroups.has(key)) identityGroups.set(key, []);
@@ -189,6 +205,8 @@ function loadRawProperties() {
 }
 
 function writeNormalizedPropertiesFile(result) {
+  // Write the normalized artifact as a reviewable audit file next to the raw
+  // properties.json. The app loads database tables, not this file directly.
   const filePath = path.join(repoRoot, "properties.normalized.json");
   const payload = {
     version: 1,

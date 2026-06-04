@@ -1,5 +1,12 @@
 "use strict";
 
+/**
+ * Express API server.
+ *
+ * The server owns persistence and business rules. React calls these endpoints
+ * rather than reimplementing eligibility/export logic on the client.
+ */
+
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
@@ -12,6 +19,8 @@ const { resetDemoState } = require("./services/resetService");
 const PORT = process.env.PORT || 3001;
 
 function withDb(handler) {
+  // Open one SQLite connection per request and close it reliably. This keeps
+  // route handlers small and avoids sharing request-specific state.
   return (req, res, next) => {
     const db = openDb();
     try {
@@ -25,6 +34,7 @@ function withDb(handler) {
 }
 
 function createApp() {
+  // Ensure normalized operational tables exist before serving requests.
   migrate();
 
   const app = express();

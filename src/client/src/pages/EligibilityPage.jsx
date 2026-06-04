@@ -6,6 +6,8 @@ import { ErrorState } from "../components.jsx";
 const DEFAULT_AS_OF = "2026-04-24";
 
 export default function EligibilityPage() {
+  // The UI intentionally starts with no batch results. The operator chooses a
+  // date, clicks Ship Batch, and only then sees the persisted CSV download.
   const [asOf, setAsOf] = useState(DEFAULT_AS_OF);
   const [error, setError] = useState(null);
   const [exporting, setExporting] = useState(false);
@@ -14,6 +16,8 @@ export default function EligibilityPage() {
   const [resetResult, setResetResult] = useState(null);
 
   async function shipBatch() {
+    // Ship Batch runs the full server-side eligibility/export flow. The client
+    // does not calculate eligibility itself.
     setExporting(true);
     setError(null);
     setResetResult(null);
@@ -29,6 +33,8 @@ export default function EligibilityPage() {
   }
 
   async function resetDemoState() {
+    // Demo reset removes only export-created rows so the 4/24/26 flow can be
+    // rerun without touching historical source data.
     setResetting(true);
     setError(null);
     setBatch(null);

@@ -111,14 +111,45 @@ Riders are stored as strings like:
 {Credit Reporting,Airfilters Delivery ($4),Move-in Concierge}
 ```
 
+The raw value stays in `enrollments.riders`. It is the original fixture string, such as:
+
+```text
+{Credit Reporting,Move-in Concierge,ID Theft Protection,Airfilters Delivery ($4),Late Payment Calls}
+```
+
+I normalize rider labels because the same business concept can appear with slightly different labels. In the fixture data, the relevant rider appears as labels such as:
+
+- `Free Airfilters Delivery`;
+- `Airfilters Delivery ($4)`.
+
+Those should both mean: this tenant has the air-filter delivery add-on.
+
+Because enrollments are static in this project, rider normalization runs during migration/startup, not when the user clicks `Ship Batch`.
+
+I store two derived fields on `enrollments`:
+
+- `normalized_rider_labels`: JSON text array of cleaned labels, useful for audit/debugging;
+- `has_air_filter_delivery`: integer boolean, `1` when the enrollment contains an air-filter delivery rider.
+
+The source of truth remains `enrollments.riders`; the derived fields are recalculated by `src/server/migrate.js` using `src/server/services/normalizeRiders.js`.
+
+I chose not to add separate `riders` and `enrollment_riders` tables for this milestone because the app only needs one business question:
+
+```text
+Does this active Renters Kit enrollment include air-filter delivery?
+```
+
+If this became a broader product-catalog system with mutable rider definitions, I would add normalized tables such as `riders` and `enrollment_riders`. For this work trial, derived enrollment fields keep the schema smaller while avoiding reparsing rider strings on each export.
+
 The rider parser:
 
 - removes surrounding braces;
 - splits on commas;
 - trims whitespace;
 - lowercases;
-- removes punctuation and price details;
-- treats `Free Airfilters Delivery` and `Airfilters Delivery ($4)` as air-filter delivery riders.
+- makes `Airfilters`, `Air Filters`, `air filters`, `air-filters`, and `filters for air` equivalent;
+- removes punctuation and price/details in parentheses;
+- treats labels as an air-filter delivery rider only when the normalized label clearly contains both an air-filter term and `delivery`, with explicit handling for the known fixture labels.
 
 The code lives in `src/server/services/normalizeRiders.js`.
 
@@ -271,12 +302,14 @@ The export includes:
 - `tenant_id`: stable internal reference for debugging and import reconciliation;
 - `property_id`: shows the cooldown group used;
 - `batch_id`: ties the row to one export run;
-- `recipient_name`: required by the shipping partner;
+- `first_name`, `last_name`: recipient name split into separate fields so downstream systems can choose how to format the label;
 - `address1`, `address2`, `city`, `state`, `zip`: required delivery address fields;
 - `shipment_date`: date the order was generated;
 - `minimum_next_shipment_date`: explains future cooldown behavior.
 
 I intentionally do not include tracking number because it does not exist until partner import. I also do not include enrollment/rider data because that is internal eligibility evidence, not shipping instruction data.
+
+ZIP codes are exported exactly as stored in SQLite. For example, tenant `175236` has zip `06323`, and the raw CSV contains `06323` without an apostrophe. Spreadsheet apps may display a warning or show an apostrophe in the formula bar because they are treating the ZIP as text to preserve the leading zero. That is expected; ZIP codes should be text, not numbers.
 
 ## Known Limitations And Future Work
 

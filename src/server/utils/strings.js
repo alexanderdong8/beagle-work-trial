@@ -1,5 +1,8 @@
 "use strict";
 
+// Shared formatting/normalization helpers for fixture cleanup, export rows, and
+// CSV generation.
+
 function normalizeWhitespace(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
@@ -17,6 +20,8 @@ function tenantFullName(tenant) {
 }
 
 function propertyIdFromAddress(tenant) {
+  // Fallback property ids are deterministic so rerunning migration does not
+  // create different property assignments for the same tenant/address.
   const parts = [
     tenant.address1,
     tenant.address2,

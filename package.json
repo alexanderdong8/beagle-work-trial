@@ -2,14 +2,30 @@
   "name": "air-filter-shipment-system",
   "version": "1.0.0",
   "description": "Shipment management system for air filter deliveries",
-  "main": "scripts/legacy-shipstation-import.js",
+  "main": "src/server/server.js",
   "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "node src/server/server.js",
+    "dev:client": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "start": "node src/server/server.js",
+    "migrate": "node src/server/migrate.js",
+    "test": "node --test \"test/**/*.test.js\"",
     "seed-fixtures": "sqlite3 database.db \".read fixtures/supplemental-fixtures.sql\"",
     "legacy:import": "node scripts/legacy-shipstation-import.js",
     "legacy:parse-sizes": "node scripts/legacy-size-parser.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0",
-    "csv-parse": "^5.5.6"
+    "csv-parse": "^5.5.6",
+    "express": "^4.19.2",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^8.2.2",
+    "vite": "^5.4.2"
   }
 }

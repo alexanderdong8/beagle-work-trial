@@ -76,7 +76,8 @@ export default function EligibilityPage() {
       {resetResult ? (
         <div className="notice notice-muted">
           Reset complete. Removed {resetResult.deleted_export_shipments} exported shipments and{" "}
-          {resetResult.deleted_batches} batches.
+          {resetResult.deleted_batches} export batches, plus {resetResult.deleted_import_shipments} imported shipments,{" "}
+          {resetResult.deleted_import_rows} import rows, and {resetResult.deleted_filter_sizes} filter-size rows.
         </div>
       ) : null}
 

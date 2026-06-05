@@ -14,6 +14,14 @@ const { openDb, repoRoot } = require("./db");
 const { migrate } = require("./migrate");
 const { DEFAULT_AS_OF_DATE, getEligibility } = require("./services/eligibilityService");
 const { createExportBatch, getBatchCsv, listBatches } = require("./services/exportService");
+const {
+  confirmImportRow,
+  dismissImportRow,
+  getCandidatesForImportRow,
+  getImportBatchDetail,
+  importShipStationFile,
+  latestImportBatch,
+} = require("./services/importService");
 const { resetDemoState } = require("./services/resetService");
 
 const PORT = process.env.PORT || 3001;
@@ -104,7 +112,7 @@ function createApp() {
             SELECT s.*, t.first_name || ' ' || t.last_name AS recipient_name, p.name AS property_name
             FROM shipments s
             JOIN tenants t ON t.id = s.tenant_id
-            JOIN properties p ON p.id = s.property_id
+            JOIN properties p ON p.tenant_id = s.tenant_id
             ORDER BY s.shipment_date DESC, s.id DESC
             LIMIT 500
           `,
@@ -139,6 +147,68 @@ function createApp() {
         .all();
 
       res.json({ issueCounts, issues });
+    }),
+  );
+
+  app.post(
+    "/api/imports/shipstation",
+    withDb((req, res, db) => {
+      res.status(201).json(importShipStationFile(db));
+    }),
+  );
+
+  app.get(
+    "/api/imports",
+    withDb((req, res, db) => {
+      res.json(latestImportBatch(db) || { batch: null, matchedRows: [], reviewRows: [], flags: [] });
+    }),
+  );
+
+  app.get(
+    "/api/imports/:id/review-rows",
+    withDb((req, res, db) => {
+      const detail = getImportBatchDetail(db, Number(req.params.id));
+      if (!detail) {
+        res.status(404).json({ error: "Import batch not found." });
+        return;
+      }
+      res.json({ reviewRows: detail.reviewRows });
+    }),
+  );
+
+  app.get(
+    "/api/import-rows/:id/candidates",
+    withDb((req, res, db) => {
+      const result = getCandidatesForImportRow(db, Number(req.params.id));
+      if (!result) {
+        res.status(404).json({ error: "Import row not found." });
+        return;
+      }
+      res.json(result);
+    }),
+  );
+
+  app.post(
+    "/api/import-rows/:id/confirm",
+    withDb((req, res, db) => {
+      const result = confirmImportRow(db, Number(req.params.id), Number(req.body.tenantId));
+      if (!result) {
+        res.status(404).json({ error: "Import row not found." });
+        return;
+      }
+      res.json(result);
+    }),
+  );
+
+  app.post(
+    "/api/import-rows/:id/dismiss",
+    withDb((req, res, db) => {
+      const result = dismissImportRow(db, Number(req.params.id));
+      if (!result) {
+        res.status(404).json({ error: "Import row not found." });
+        return;
+      }
+      res.json(result);
     }),
   );
 

@@ -11,10 +11,7 @@
 const { openDb } = require("./db");
 const { addDays } = require("./utils/dates");
 const { tenantFullName } = require("./utils/strings");
-const {
-  hasAirFilterDeliveryRider,
-  normalizedRiderLabels,
-} = require("./services/normalizeRiders");
+const { normalizedRiderLabels } = require("./services/normalizeRiders");
 const {
   loadRawProperties,
   normalizeProperties,
@@ -27,18 +24,12 @@ function createSchema(db) {
   // Tables are created idempotently so the app can run migration on startup.
   db.exec(`
     CREATE TABLE IF NOT EXISTS properties (
-      id TEXT PRIMARY KEY,
+      tenant_id INTEGER PRIMARY KEY REFERENCES tenants(id),
+      property_id TEXT NOT NULL,
       name TEXT NOT NULL,
       shipment_interval_days INTEGER NOT NULL,
-      source TEXT NOT NULL,
+      notes TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS tenant_properties (
-      tenant_id INTEGER PRIMARY KEY REFERENCES tenants(id),
-      property_id TEXT NOT NULL REFERENCES properties(id),
-      assignment_source TEXT NOT NULL,
-      notes TEXT
     );
 
     CREATE TABLE IF NOT EXISTS data_quality_issues (
@@ -66,7 +57,7 @@ function createSchema(db) {
     CREATE TABLE IF NOT EXISTS shipments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id INTEGER NOT NULL REFERENCES tenants(id),
-      property_id TEXT NOT NULL REFERENCES properties(id),
+      property_id TEXT NOT NULL,
       batch_id INTEGER REFERENCES shipment_batches(id),
       shipment_date TEXT NOT NULL,
       minimum_next_shipment_date TEXT NOT NULL,
@@ -76,14 +67,67 @@ function createSchema(db) {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
-    CREATE INDEX IF NOT EXISTS idx_tenant_properties_property_id
-      ON tenant_properties(property_id);
+    CREATE TABLE IF NOT EXISTS shipment_import_batches (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      filename TEXT NOT NULL,
+      imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      total_rows INTEGER NOT NULL DEFAULT 0,
+      auto_matched_rows INTEGER NOT NULL DEFAULT 0,
+      review_rows INTEGER NOT NULL DEFAULT 0,
+      flagged_rows INTEGER NOT NULL DEFAULT 0,
+      size_warning_rows INTEGER NOT NULL DEFAULT 0,
+      dismissed_rows INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'imported'
+    );
+
+    CREATE TABLE IF NOT EXISTS shipment_import_rows (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      import_batch_id INTEGER NOT NULL REFERENCES shipment_import_batches(id),
+      shipment_id TEXT,
+      carrier TEXT,
+      raw_name TEXT NOT NULL,
+      address1 TEXT,
+      address2 TEXT,
+      city TEXT,
+      state TEXT,
+      zip TEXT,
+      ship_date TEXT,
+      custom_field_1 TEXT,
+      matched_tenant_id INTEGER REFERENCES tenants(id),
+      matched_shipment_id INTEGER REFERENCES shipments(id),
+      match_status TEXT NOT NULL,
+      match_score INTEGER NOT NULL DEFAULT 0,
+      match_reason TEXT,
+      matched_fields TEXT,
+      conflicting_fields TEXT,
+      reviewed_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS shipment_filter_sizes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      shipment_id INTEGER REFERENCES shipments(id),
+      import_row_id INTEGER NOT NULL REFERENCES shipment_import_rows(id),
+      raw_value TEXT NOT NULL,
+      normalized_value TEXT,
+      width_inches REAL,
+      height_inches REAL,
+      depth_inches REAL,
+      parse_status TEXT NOT NULL,
+      parse_error TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_shipments_property_date
       ON shipments(property_id, shipment_date);
     CREATE INDEX IF NOT EXISTS idx_shipments_status
       ON shipments(status);
     CREATE INDEX IF NOT EXISTS idx_shipments_batch_id
       ON shipments(batch_id);
+    CREATE INDEX IF NOT EXISTS idx_import_rows_batch_status
+      ON shipment_import_rows(import_batch_id, match_status);
+    CREATE INDEX IF NOT EXISTS idx_import_rows_tenant
+      ON shipment_import_rows(matched_tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_filter_sizes_import_row
+      ON shipment_filter_sizes(import_row_id);
   `);
 
   const enrollmentColumns = new Set(
@@ -97,10 +141,93 @@ function createSchema(db) {
     db.prepare("ALTER TABLE enrollments ADD COLUMN normalized_rider_labels TEXT").run();
   }
 
-  if (!enrollmentColumns.has("has_air_filter_delivery")) {
-    db.prepare("ALTER TABLE enrollments ADD COLUMN has_air_filter_delivery INTEGER NOT NULL DEFAULT 0").run();
-    db.prepare("CREATE INDEX IF NOT EXISTS idx_enrollments_air_filter ON enrollments(has_air_filter_delivery)").run();
+  const propertyColumns = new Set(
+    db
+      .prepare("PRAGMA table_info(properties)")
+      .all()
+      .map((column) => column.name),
+  );
+
+  if (
+    !propertyColumns.has("tenant_id") ||
+    propertyColumns.has("id") ||
+    propertyColumns.has("source") ||
+    propertyColumns.has("assignment_source")
+  ) {
+    db.pragma("foreign_keys = OFF");
+    try {
+      db.exec(`
+        DROP INDEX IF EXISTS idx_tenant_properties_property_id;
+        DROP INDEX IF EXISTS idx_properties_property_id;
+        DROP TABLE IF EXISTS tenant_properties;
+        DROP TABLE IF EXISTS properties;
+        CREATE TABLE properties (
+          tenant_id INTEGER PRIMARY KEY REFERENCES tenants(id),
+          property_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          shipment_interval_days INTEGER NOT NULL,
+          notes TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX idx_properties_property_id
+          ON properties(property_id);
+      `);
+    } finally {
+      db.pragma("foreign_keys = ON");
+    }
   }
+
+  const shipmentReferencesProperties = db
+    .prepare("PRAGMA foreign_key_list(shipments)")
+    .all()
+    .some((foreignKey) => foreignKey.table === "properties");
+
+  if (shipmentReferencesProperties) {
+    db.pragma("foreign_keys = OFF");
+    try {
+      db.exec(`
+        DROP INDEX IF EXISTS idx_shipments_property_date;
+        DROP INDEX IF EXISTS idx_shipments_status;
+        DROP INDEX IF EXISTS idx_shipments_batch_id;
+
+        CREATE TABLE shipments_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+          property_id TEXT NOT NULL,
+          batch_id INTEGER REFERENCES shipment_batches(id),
+          shipment_date TEXT NOT NULL,
+          minimum_next_shipment_date TEXT NOT NULL,
+          tracking_number TEXT UNIQUE,
+          status TEXT NOT NULL,
+          source TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT INTO shipments_new
+          (id, tenant_id, property_id, batch_id, shipment_date, minimum_next_shipment_date,
+           tracking_number, status, source, created_at)
+        SELECT id, tenant_id, property_id, batch_id, shipment_date, minimum_next_shipment_date,
+               tracking_number, status, source, created_at
+        FROM shipments;
+
+        DROP TABLE shipments;
+        ALTER TABLE shipments_new RENAME TO shipments;
+      `);
+    } finally {
+      db.pragma("foreign_keys = ON");
+    }
+  }
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_properties_property_id
+      ON properties(property_id);
+    CREATE INDEX IF NOT EXISTS idx_shipments_property_date
+      ON shipments(property_id, shipment_date);
+    CREATE INDEX IF NOT EXISTS idx_shipments_status
+      ON shipments(status);
+    CREATE INDEX IF NOT EXISTS idx_shipments_batch_id
+      ON shipments(batch_id);
+  `);
 }
 
 function normalizeEnrollmentRiders(db) {
@@ -109,8 +236,7 @@ function normalizeEnrollmentRiders(db) {
   const enrollments = db.prepare("SELECT id, riders FROM enrollments ORDER BY id").all();
   const update = db.prepare(`
     UPDATE enrollments
-    SET normalized_rider_labels = @normalized_rider_labels,
-        has_air_filter_delivery = @has_air_filter_delivery
+    SET normalized_rider_labels = @normalized_rider_labels
     WHERE id = @id
   `);
 
@@ -119,7 +245,6 @@ function normalizeEnrollmentRiders(db) {
       update.run({
         id: enrollment.id,
         normalized_rider_labels: JSON.stringify(normalizedRiderLabels(enrollment.riders)),
-        has_air_filter_delivery: hasAirFilterDeliveryRider(enrollment.riders) ? 1 : 0,
       });
     }
   });
@@ -136,20 +261,17 @@ function seedOperationalData(db) {
 
   const tx = db.transaction(() => {
     db.prepare("DELETE FROM data_quality_issues").run();
-    db.prepare("DELETE FROM tenant_properties").run();
+    db.prepare("DELETE FROM properties").run();
 
-    const insertProperty = db.prepare(`
-      INSERT INTO properties (id, name, shipment_interval_days, source)
-      VALUES (@id, @name, @shipment_interval_days, @source)
-      ON CONFLICT(id) DO UPDATE SET
-        name = excluded.name,
-        shipment_interval_days = excluded.shipment_interval_days,
-        source = excluded.source
-    `);
+    const propertyDefinitions = new Map(
+      normalized.normalizedProperties.map((property) => [property.id, property]),
+    );
 
-    const insertAssignment = db.prepare(`
-      INSERT INTO tenant_properties (tenant_id, property_id, assignment_source, notes)
-      VALUES (@tenant_id, @property_id, @assignment_source, @notes)
+    const insertPropertyAssignment = db.prepare(`
+      INSERT INTO properties
+        (tenant_id, property_id, name, shipment_interval_days, notes)
+      VALUES
+        (@tenant_id, @property_id, @name, @shipment_interval_days, @notes)
     `);
 
     const insertIssue = db.prepare(`
@@ -159,17 +281,15 @@ function seedOperationalData(db) {
         (@issue_type, @tenant_id, @related_tenant_id, @property_id, @related_property_id, @details, @resolution)
     `);
 
-    for (const property of normalized.normalizedProperties) {
-      insertProperty.run({
-        id: property.id,
+    for (const assignment of normalized.tenantProperties) {
+      const property = propertyDefinitions.get(assignment.property_id);
+      insertPropertyAssignment.run({
+        tenant_id: assignment.tenant_id,
+        property_id: assignment.property_id,
         name: property.name,
         shipment_interval_days: property.shipment_interval_days,
-        source: property.source,
+        notes: assignment.notes,
       });
-    }
-
-    for (const assignment of normalized.tenantProperties) {
-      insertAssignment.run(assignment);
     }
 
     for (const issue of normalized.dataQualityIssues) {
@@ -183,6 +303,20 @@ function seedOperationalData(db) {
         resolution: issue.resolution,
       });
     }
+
+    db.prepare(`
+      UPDATE shipments
+      SET property_id = (
+        SELECT property_id
+        FROM properties
+        WHERE properties.tenant_id = shipments.tenant_id
+      )
+      WHERE EXISTS (
+        SELECT 1
+        FROM properties
+        WHERE properties.tenant_id = shipments.tenant_id
+      )
+    `).run();
   });
 
   tx();
@@ -199,7 +333,7 @@ function recordHistoricalIssues(db) {
   `);
 
   const tenantProperty = db
-    .prepare("SELECT property_id FROM tenant_properties WHERE tenant_id = ?")
+    .prepare("SELECT property_id FROM properties WHERE tenant_id = ?")
     .pluck();
 
   const futureShipments = db
@@ -254,10 +388,9 @@ function normalizeHistoricalShipments(db) {
   // table for both past shipments and export-created orders.
   const rows = db
     .prepare(`
-      SELECT hs.*, tp.property_id, p.shipment_interval_days
+      SELECT hs.*, p.property_id, p.shipment_interval_days
       FROM historical_shipments hs
-      JOIN tenant_properties tp ON tp.tenant_id = hs.tenant_id
-      JOIN properties p ON p.id = tp.property_id
+      JOIN properties p ON p.tenant_id = hs.tenant_id
       ORDER BY hs.id
     `)
     .all();

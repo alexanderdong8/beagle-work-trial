@@ -3,10 +3,10 @@
 /**
  * Rider labels arrive from the fixture as a Postgres-array-ish string, not as
  * normalized relational rows. Migration uses these helpers to derive
- * enrollments.normalized_rider_labels and enrollments.has_air_filter_delivery.
+ * enrollments.normalized_rider_labels for audit/debugging.
  *
- * The raw riders string stays intact, while the derived columns give eligibility
- * a strict, fast yes/no field to query.
+ * The raw riders string stays intact, and eligibility uses the same parser
+ * directly because each enrollment has only a small rider list.
  */
 
 function splitRiders(riders) {

@@ -10,6 +10,7 @@
 
 const { daysBetween, isIsoDate } = require("../utils/dates");
 const { tenantFullName } = require("../utils/strings");
+const { hasAirFilterDeliveryRider } = require("./normalizeRiders");
 
 const DEFAULT_AS_OF_DATE = "2026-04-24";
 const COOLDOWN_STATUSES = ["historical", "ordered", "shipped", "delivered", "confirmed"];
@@ -50,22 +51,25 @@ function getDuplicateTenantIds(db) {
 }
 
 function getEnrollmentQualifiedTenantIds(db) {
-  // Rider strings are normalized during migration/startup into
-  // has_air_filter_delivery, so Ship Batch does not reparse rider labels.
   const rows = db
     .prepare(
       `
-        SELECT DISTINCT tenant_id
+        SELECT tenant_id, riders
         FROM enrollments
         WHERE active = 1
           AND product = 'Renters Kit'
-          AND has_air_filter_delivery = 1
         ORDER BY tenant_id
       `,
     )
     .all();
 
-  return new Set(rows.map((row) => row.tenant_id));
+  // Each enrollment has only a handful of riders, so checking the source rider
+  // string here keeps the schema smaller without meaningful performance cost.
+  return new Set(
+    rows
+      .filter((row) => hasAirFilterDeliveryRider(row.riders))
+      .map((row) => row.tenant_id),
+  );
 }
 
 function getLookupMaps(db, asOf) {
@@ -75,7 +79,7 @@ function getLookupMaps(db, asOf) {
     .prepare(
       `
         SELECT tenant_id, property_id
-        FROM tenant_properties
+        FROM properties
       `,
     )
     .all();
@@ -83,9 +87,12 @@ function getLookupMaps(db, asOf) {
   const properties = db
     .prepare(
       `
-        SELECT id, name, shipment_interval_days, source
+        SELECT property_id AS id,
+               MIN(name) AS name,
+               MIN(shipment_interval_days) AS shipment_interval_days
         FROM properties
-        ORDER BY id
+        GROUP BY property_id
+        ORDER BY property_id
       `,
     )
     .all();

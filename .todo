@@ -3,3 +3,10 @@
 3. understnad the schema changes
 4. understnad why i included the columns in the exported csv, why did i choose a web app
 5. understnad how i normalized riders
+
+
+- Confirm that the columns that match from the imported CSV to the shipments become updated and
+- lowkey get rid of shipment_import_batches and the shipment batches tables they not necessary and get rid of sqlite sequence or idk wahts that for
+- also make the filter sizes combined into the other table
+- get rid of duplicates from the beginning, where even if i reset it it should not include the duplicates that should be removed on app startup.
+- get rid of size warnings from the database

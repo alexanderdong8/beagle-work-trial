@@ -1,13 +1,12 @@
 {
   "version": 1,
   "description": "Normalized property shipment intervals and tenant assignments generated from properties.json.",
-  "default_fallback_interval_days": 90,
+  "missing_property_interval_days": 90,
   "properties": [
     {
       "id": "prop-cedar-court",
       "name": "Cedar Court",
       "shipment_interval_days": 90,
-      "source": "properties_json",
       "tenant_ids": [
         135437,
         135438,
@@ -26,7 +25,6 @@
       "id": "prop-oak-terrace",
       "name": "Oak Terrace",
       "shipment_interval_days": 60,
-      "source": "properties_json",
       "tenant_ids": [
         135448,
         135449,
@@ -45,7 +43,6 @@
       "id": "prop-river-house",
       "name": "River House",
       "shipment_interval_days": 120,
-      "source": "properties_json",
       "tenant_ids": [
         135459,
         135460,
@@ -64,7 +61,6 @@
       "id": "prop-pine-station",
       "name": "Pine Station",
       "shipment_interval_days": 90,
-      "source": "properties_json",
       "tenant_ids": [
         135470,
         135471,
@@ -83,7 +79,6 @@
       "id": "prop-lakeview",
       "name": "Lakeview",
       "shipment_interval_days": 45,
-      "source": "properties_json",
       "tenant_ids": [
         136023,
         136024,
@@ -102,7 +97,6 @@
       "id": "prop-harbor-point",
       "name": "Harbor Point",
       "shipment_interval_days": 90,
-      "source": "properties_json",
       "tenant_ids": [
         145306,
         145535,
@@ -121,7 +115,6 @@
       "id": "prop-willow-crossing",
       "name": "Willow Crossing",
       "shipment_interval_days": 75,
-      "source": "properties_json",
       "tenant_ids": [
         145545,
         145546,
@@ -140,7 +133,6 @@
       "id": "prop-riverbend",
       "name": "Riverbend",
       "shipment_interval_days": 90,
-      "source": "properties_json",
       "tenant_ids": [
         145556,
         145557,
@@ -159,7 +151,6 @@
       "id": "prop-maple-loop",
       "name": "Maple Loop",
       "shipment_interval_days": 90,
-      "source": "properties_json",
       "tenant_ids": [
         900001,
         900002
@@ -169,337 +160,54 @@
       "id": "prop-riverbend-annex",
       "name": "Riverbend Annex",
       "shipment_interval_days": 45,
-      "source": "normalized_duplicate",
       "tenant_ids": []
     },
     {
       "id": "prop-oak-overflow",
       "name": "Oak Overflow",
       "shipment_interval_days": 120,
-      "source": "properties_json",
       "tenant_ids": []
     },
     {
-      "id": "fallback-8117-tuan-falls-apt-525-ferryland-ny-23150-0342",
-      "name": "Fallback: 8117 Tuan Falls",
+      "id": "missing-property",
+      "name": "Missing Property",
       "shipment_interval_days": 90,
-      "source": "fallback_address",
       "tenant_ids": [
-        145567
-      ]
-    },
-    {
-      "id": "fallback-98362-ariel-motorway-apt-721-south-jewellhaven-ny-41225-4463",
-      "name": "Fallback: 98362 Ariel Motorway",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        145568
-      ]
-    },
-    {
-      "id": "fallback-1495-kutch-shore-suite-574-west-justinmouth-md-80425-7049",
-      "name": "Fallback: 1495 Kutch Shore",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        145569
-      ]
-    },
-    {
-      "id": "fallback-66205-ruecker-lodge-apt-400-lake-lenny-hi-91843",
-      "name": "Fallback: 66205 Ruecker Lodge",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        145570
-      ]
-    },
-    {
-      "id": "fallback-5884-jim-harbors-suite-416-cristfort-nd-03271",
-      "name": "Fallback: 5884 Jim Harbors",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        145571
-      ]
-    },
-    {
-      "id": "fallback-348-gottlieb-points-apt-530-schummshire-pa-93126",
-      "name": "Fallback: 348 Gottlieb Points",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        145572
-      ]
-    },
-    {
-      "id": "fallback-1082-stamm-walk-apt-689-lake-valentine-ny-92261",
-      "name": "Fallback: 1082 Stamm Walk",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        145573
-      ]
-    },
-    {
-      "id": "fallback-422-denis-extension-suite-951-romagueramouth-ca-52672",
-      "name": "Fallback: 422 Denis Extension",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        145574
-      ]
-    },
-    {
-      "id": "fallback-67496-terry-radial-suite-639-hermanport-wa-70481-8169",
-      "name": "Fallback: 67496 Terry Radial",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        145575
-      ]
-    },
-    {
-      "id": "fallback-7890-garry-skyway-suite-473-south-mandychester-oh-61622",
-      "name": "Fallback: 7890 Garry Skyway",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        145576
-      ]
-    },
-    {
-      "id": "fallback-27348-dietrich-rapid-apt-818-port-lidaton-md-42234-8839",
-      "name": "Fallback: 27348 Dietrich Rapid",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        145577
-      ]
-    },
-    {
-      "id": "fallback-4753-marline-lakes-apt-393-lake-javier-wa-32442",
-      "name": "Fallback: 4753 Marline Lakes",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        145578
-      ]
-    },
-    {
-      "id": "fallback-41218-sammie-crest-apt-126-herschelton-mn-68200-3310",
-      "name": "Fallback: 41218 Sammie Crest",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        145579
-      ]
-    },
-    {
-      "id": "fallback-36970-beatty-harbors-apt-643-south-takako-ar-14774-7832",
-      "name": "Fallback: 36970 Beatty Harbors",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        145580
-      ]
-    },
-    {
-      "id": "fallback-69231-leandro-shoal-suite-491-giuseppinaberg-nh-79814-8171",
-      "name": "Fallback: 69231 Leandro Shoal",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        145581
-      ]
-    },
-    {
-      "id": "fallback-42028-zulauf-hills-suite-310-east-richardbury-id-91961",
-      "name": "Fallback: 42028 Zulauf Hills",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        145582
-      ]
-    },
-    {
-      "id": "fallback-244-mccullough-walks-apt-979-hilperttown-co-45778-8292",
-      "name": "Fallback: 244 McCullough Walks",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        145583
-      ]
-    },
-    {
-      "id": "fallback-94655-hudson-groves-suite-351-kiehnchester-or-49721-3197",
-      "name": "Fallback: 94655 Hudson Groves",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        149363
-      ]
-    },
-    {
-      "id": "fallback-52079-vince-trace-suite-138-hintzchester-wv-88758",
-      "name": "Fallback: 52079 Vince Trace",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        149364
-      ]
-    },
-    {
-      "id": "fallback-91718-herzog-overpass-apt-602-rileyton-tn-71629",
-      "name": "Fallback: 91718 Herzog Overpass",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        149365
-      ]
-    },
-    {
-      "id": "fallback-35494-zboncak-roads-apt-867-north-clementineberg-ms-71775-3215",
-      "name": "Fallback: 35494 Zboncak Roads",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        149366
-      ]
-    },
-    {
-      "id": "fallback-3211-zboncak-stravenue-apt-158-north-harlan-mi-54005-1935",
-      "name": "Fallback: 3211 Zboncak Stravenue",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        155011
-      ]
-    },
-    {
-      "id": "fallback-45712-anjanette-fields-suite-976-west-vivianchester-mn-59686",
-      "name": "Fallback: 45712 Anjanette Fields",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        159857
-      ]
-    },
-    {
-      "id": "fallback-921-mann-crossroad-suite-100-claymouth-ok-36351",
-      "name": "Fallback: 921 Mann Crossroad",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        165834
-      ]
-    },
-    {
-      "id": "fallback-113-conroy-corners-apt-973-north-leeannmouth-vt-68427-7446",
-      "name": "Fallback: 113 Conroy Corners",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        169914
-      ]
-    },
-    {
-      "id": "fallback-322-minh-greens-suite-764-mcglynnstad-ut-14524",
-      "name": "Fallback: 322 Minh Greens",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        175235
-      ]
-    },
-    {
-      "id": "fallback-7781-wilson-mountains-apt-269-port-zachariahshire-ok-06323",
-      "name": "Fallback: 7781 Wilson Mountains",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        175236
-      ]
-    },
-    {
-      "id": "fallback-931-nora-vista-apt-398-satterfieldbury-ma-90934",
-      "name": "Fallback: 931 Nora Vista",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        175237
-      ]
-    },
-    {
-      "id": "fallback-790-kiehn-center-suite-370-south-ulrike-ct-15710-5390",
-      "name": "Fallback: 790 Kiehn Center",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        175238
-      ]
-    },
-    {
-      "id": "fallback-40899-elvina-rapid-suite-387-north-refugio-md-84480-8216",
-      "name": "Fallback: 40899 Elvina Rapid",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        191166
-      ]
-    },
-    {
-      "id": "fallback-453-jacque-parkway-apt-749-annaleeburgh-nh-59285-9333",
-      "name": "Fallback: 453 Jacque Parkway",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        191167
-      ]
-    },
-    {
-      "id": "fallback-640-deeanna-square-suite-331-south-rico-mt-00054-7011",
-      "name": "Fallback: 640 Deeanna Square",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        191168
-      ]
-    },
-    {
-      "id": "fallback-22807-schiller-groves-apt-233-north-beula-ne-35234-8142",
-      "name": "Fallback: 22807 Schiller Groves",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        195926
-      ]
-    },
-    {
-      "id": "fallback-10145-ebert-causeway-apt-417-howeshire-mo-36468-7588",
-      "name": "Fallback: 10145 Ebert Causeway",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        209986
-      ]
-    },
-    {
-      "id": "fallback-2333-kris-forks-suite-752-new-marry-va-70314",
-      "name": "Fallback: 2333 Kris Forks",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
-        221586
-      ]
-    },
-    {
-      "id": "fallback-25137-kiehn-lane-suite-488-east-lynwood-wy-90531-8014",
-      "name": "Fallback: 25137 Kiehn Lane",
-      "shipment_interval_days": 90,
-      "source": "fallback_address",
-      "tenant_ids": [
+        145567,
+        145568,
+        145569,
+        145570,
+        145571,
+        145572,
+        145573,
+        145574,
+        145575,
+        145576,
+        145577,
+        145578,
+        145579,
+        145580,
+        145581,
+        145582,
+        145583,
+        149363,
+        149364,
+        149365,
+        149366,
+        155011,
+        159857,
+        165834,
+        169914,
+        175235,
+        175236,
+        175237,
+        175238,
+        191166,
+        191167,
+        191168,
+        195926,
+        209986,
+        221586,
         221587
       ]
     }

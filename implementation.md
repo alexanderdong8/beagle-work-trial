@@ -10,7 +10,7 @@ This implementation now covers the four main workflow requirements of the work t
 - record exports as shipment orders so tenants/properties are not re-exported immediately;
 - import a ShipStation-style shipment file, match rows back to tenants/shipments, parse filter sizes, and surface rows that need manual review.
 
-App was built with React, Express, and SQLite. 
+App was built with React, Express, and SQLite.
 
 ## Schema Decisions
 
@@ -179,7 +179,7 @@ All of these are recorded in `data_quality_issues` and exposed through `GET /api
 
 ## Data Cleanup Resolutions
 
-I kept the original `properties.json` unchanged and generated a new `properties.normalized.json`.
+I kept the original `properties/properties.json` unchanged and generated `properties/properties.normalized.json` next to it.
 
 The duplicate Riverbend property is renamed to `prop-riverbend-annex` because the source name is Riverbend Annex and it has a different shipment interval, so it seems right to treat it as a separate entity.
 
@@ -193,7 +193,7 @@ name: Fallback: {address1}
 shipment_interval_days: 90
 ```
 
-I intially had the unassigned tenants into one shared `missing-property` group, but that only led to 3 eligible tenants because one historical shipment for any missing-property tenant put every other missing-property tenant on cooldown. Instead of inventing a relationship between unrelated tenants, I used a fallback of using the address as their property_id and property name. This results in 32 eligible tenats on`2026-04-24` instead of`3`.
+I intially had the unassigned tenants into one shared `missing-property` group, but that only led to 3 eligible tenants because one historical shipment for any missing-property tenant put every other missing-property tenant on cooldown. Instead of inventing a relationship between unrelated tenants, I used a fallback of using the address as their property_id and property name. This results in 34 eligible tenats on`2026-04-24` instead of`3`.
 
 For duplicate tenants, the webapp startup will remove duplicate tenants from the database. For Casey Morgan, tenant `900001` is kept and tenant `900002` is deleted along with related enrollments, historical shipments, import rows, and shipment rows. This means reset does not bring the duplicate back. This would mean that there could be data lost from the deletion of the duplicate data, but that is a result from user error and not on our side.
 
@@ -347,7 +347,7 @@ Ordered shipments count for cooldown immediately. Otherwise, running the export 
 
 The Import tab handles the fourth requirement. It imports a selected ShipStation-style CSV file, stores every raw row, attempts tenant matching, parses filter sizes, updates or creates shipment records, and exposes review/flag queues.
 
-The app handles the import of a CSV file that contains shipping data. An additional exemple `fixtures\matching-demo-shipstation.csv` was generated to further test cases where a perfect match is not found. 
+The app handles the import of a CSV file that contains shipping data. An additional exemple `fixtures\matching-demo-shipstation.csv` was generated to further test cases where a perfect match is not found.
 
 The shipstation import handles and covers these cases:
 
@@ -419,7 +419,7 @@ The matcher does **not** scan every tenant row for every CSV row. Instead, it do
 1. **Build in-memory lookup indexes once per import run** (JavaScript `Map`s created by `buildTenantIndexes()`).
 2. **For each CSV row, use those indexes to fetch a small candidate set**, then score only those candidates.
 
-This is what allows`O(1)` lookup: `Map.get(key)` is average-case `O(1)`, so looking up “tenants with this normalized name” or “tenants with this normalized address+ZIP” is constant-time *per lookup*. The full match is not purely `O(1)` end-to-end because candidates still need to be scored and sorted, but in practice the candidate set is small, so this avoids a much larger `O(number_of_tenants)` scan for each import row.
+This is what allows`O(1)` lookup: `Map.get(key)` is average-case `O(1)`, so looking up “tenants with this normalized name” or “tenants with this normalized address+ZIP” is constant-time _per lookup_. The full match is not purely `O(1)` end-to-end because candidates still need to be scored and sorted, but in practice the candidate set is small, so this avoids a much larger `O(number_of_tenants)` scan for each import row.
 
 Note that these matcher “indexes” are **not SQLite indexes**. SQLite indexes speed up SQL queries. Here, the matcher indexes are in-memory hash maps used after the tenant rows have already been loaded.
 
@@ -574,7 +574,6 @@ For each import row, the flow is:
 
 The score is additive and totals 100 points:
 
-
 | Field     | Points | Why it matters                                                                                  |
 | --------- | ------ | ----------------------------------------------------------------------------------------------- |
 | Full name | 40     | Strong identity signal, but not enough alone because duplicates and shared names can exist.     |
@@ -583,7 +582,6 @@ The score is additive and totals 100 points:
 | City      | 7      | Supporting address signal.                                                                      |
 | State     | 5      | Supporting address signal.                                                                      |
 | ZIP       | 13     | Strong supporting address signal; ZIPs are normalized so values like `6323` compare as `06323`. |
-
 
 Score interpretation:
 
@@ -748,6 +746,12 @@ Flags are not stored in a separate table. They are derived from `shipment_import
 
 ## Known Limitations And Future Work
 
+For limitations of my app:
 
+The removal of duplications can results in loss of potential information. Current schema design has some redundancy of information. SQLite db is not very scalble for a large production workload.
 
-For future work, I would improve the UI to make everything more clean, sleek and modern. I would also then consider the scalability for the platform, like a larger database for more files such as a postgresql DB instead of a sqlite DB.  For large CSV files the processing might have to be a little bit different because linearly parsing thorugh it may take a too long. 
+For future work:
+
+I would improve the UI to make everything more clean, sleek and modern. I would also then consider the scalability for the platform, like a larger database for more files such as a postgresql DB instead of a sqlite DB. For large CSV files the processing might have to be a little bit different because linearly parsing thorugh it may take a too long.
+
+I could also separate the filters sizes into their own table, which will be more simpler to query a queries were needed in relation to the air filter sizes.

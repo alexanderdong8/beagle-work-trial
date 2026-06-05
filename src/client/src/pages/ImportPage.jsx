@@ -1,5 +1,5 @@
 import { CheckCircle2, FileInput, RotateCcw, XCircle } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiGet, apiPost } from "../api.js";
 import { ErrorState, LoadingState, Stat, StatusPill, TableShell } from "../components.jsx";
 
@@ -88,6 +88,7 @@ export default function ImportPage() {
   const [dismissingId, setDismissingId] = useState(null);
   const [resultTab, setResultTab] = useState("matched");
   const [selectedFile, setSelectedFile] = useState(null);
+  const fileInputRef = useRef(null);
 
   const loadLatest = useCallback(async () => {
     setError(null);
@@ -160,13 +161,24 @@ export default function ImportPage() {
           <h2>Match shipments and review flags</h2>
         </div>
         <div className="control-row">
-          <label>
+          <label className="file-picker">
             <span>CSV file</span>
             <input
               accept=".csv,text/csv"
+              className="visually-hidden"
               onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
+              ref={fileInputRef}
               type="file"
             />
+            <div className="file-picker-control">
+              <button className="icon-button" onClick={() => fileInputRef.current?.click()} type="button">
+                <FileInput size={16} aria-hidden="true" />
+                <span>Choose CSV</span>
+              </button>
+              <span className={selectedFile ? "file-name" : "file-name file-name-empty"}>
+                {selectedFile ? selectedFile.name : "No file selected"}
+              </span>
+            </div>
           </label>
           <button className="icon-button" disabled={resetting} onClick={resetDemoState} type="button">
             <RotateCcw size={17} aria-hidden="true" />

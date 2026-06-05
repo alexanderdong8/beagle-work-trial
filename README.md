@@ -12,8 +12,8 @@ For detailed schema decisions, data-quality findings, matching rules, cooldown t
 - `src/client/`: Vite React app for Ship Batch and Import workflows.
 - `fixtures/`: supplemental SQL and demo CSV files.
 - `test/`: focused domain tests for eligibility helpers, CSV export, import matching, and filter-size parsing.
-- `properties.json`: provided property assignment/interval fixture.
-- `properties.normalized.json`: generated normalized property assignment artifact.
+- `properties/properties.json`: provided property assignment/interval fixture.
+- `properties/properties.normalized.json`: generated normalized property assignment artifact.
 - `shipstation-export.csv`: provided ShipStation export fixture.
 - `fixtures/matching-demo-shipstation.csv`: smaller demo CSV that exercises matching conflicts and flags.
 
@@ -25,15 +25,10 @@ Install dependencies:
 npm install
 ```
 
-Run migration:
+For the interview/demo flow, build the React app and start the Express server:
 
 ```bash
-npm run migrate
-```
-
-Start the app:
-
-```bash
+npm run build
 npm start
 ```
 
@@ -43,11 +38,25 @@ Open:
 http://127.0.0.1:3001
 ```
 
-For development with Vite and the API server:
+You do not need to run migrations manually before every start. The server runs the migration/normalization step automatically when `npm start` starts the app. Run this manually only if you want to regenerate operational data immediately after changing schema or fixture files:
+
+```bash
+npm run migrate
+```
+
+For active development, use Vite plus the API server:
 
 ```bash
 npm run dev
 ```
+
+Then open the Vite client:
+
+```text
+http://127.0.0.1:5173
+```
+
+Use `npm start` when you want the simplest single-server demo. Use `npm run dev` when you are editing the React UI and want Vite's development refresh behavior.
 
 ## How To Use The App
 
@@ -74,11 +83,3 @@ Good files to try:
 
 - `shipstation-export.csv`: the provided full fixture.
 - `fixtures/matching-demo-shipstation.csv`: a smaller demo file with auto matches, address conflicts, missing fields, and filter-size flags.
-
-## Useful Commands
-
-```bash
-npm test
-npm run build
-npm run migrate
-```

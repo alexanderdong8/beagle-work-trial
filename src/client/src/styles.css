@@ -142,7 +142,7 @@ h3 {
 .batch-flow {
   display: grid;
   gap: 18px;
-  max-width: 980px;
+  width: 100%;
 }
 
 .import-flow {
@@ -185,6 +185,7 @@ h3 {
 
 .control-row {
   flex-wrap: wrap;
+  align-items: flex-end;
   justify-content: flex-end;
 }
 
@@ -203,6 +204,54 @@ input[type="date"] {
   background: #fff;
   color: var(--text);
   padding: 0 10px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.file-picker {
+  min-width: min(360px, 100%);
+}
+
+.file-picker-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 0 10px 0 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.file-picker-control .icon-button {
+  min-height: 36px;
+  border-width: 0 1px 0 0;
+  border-radius: 7px 0 0 7px;
+}
+
+.file-name {
+  min-width: 0;
+  max-width: 190px;
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-name-empty {
+  color: var(--muted);
+  font-weight: 600;
 }
 
 .icon-button,

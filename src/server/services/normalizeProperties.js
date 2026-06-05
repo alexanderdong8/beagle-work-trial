@@ -198,14 +198,14 @@ function normalizeProperties(rawProperties, tenants) {
 }
 
 function loadRawProperties() {
-  const filePath = path.join(repoRoot, "properties.json");
+  const filePath = path.join(repoRoot, "properties", "properties.json");
   return JSON.parse(fs.readFileSync(filePath, "utf8")).properties;
 }
 
 function writeNormalizedPropertiesFile(result) {
   // Write the normalized artifact as a reviewable audit file next to the raw
   // properties.json. The app loads database tables, not this file directly.
-  const filePath = path.join(repoRoot, "properties.normalized.json");
+  const filePath = path.join(repoRoot, "properties", "properties.normalized.json");
   const payload = {
     version: 1,
     description: "Normalized property shipment intervals and tenant assignments generated from properties.json.",

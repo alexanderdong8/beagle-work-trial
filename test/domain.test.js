@@ -176,6 +176,21 @@ test("matches imports confidently only when unit data is not conflicting", () =>
   );
   assert.equal(unitConflict.matchStatus, "needs_review");
   assert.equal(unitConflict.matchReason, "address2_conflict");
+
+  const missingUnit = findMatch(
+    {
+      name: "Kizzy O'Keefe",
+      address1: "7781 Wilson Mountains",
+      address2: "",
+      city: "Port Zachariahshire",
+      state: "OK",
+      zip: "06323",
+    },
+    indexes,
+  );
+  assert.equal(missingUnit.matchStatus, "needs_review");
+  assert.equal(missingUnit.matchScore, 90);
+  assert.equal(missingUnit.matchReason, "unit_missing_needs_review");
 });
 
 test("duplicate tenant identity candidates require review", () => {

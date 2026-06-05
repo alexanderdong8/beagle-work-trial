@@ -193,9 +193,9 @@ name: Fallback: {address1}
 shipment_interval_days: 90
 ```
 
-I intially had the unassigned tenants into one shared `missing-property` group, but that only led to 3 eligible tenants because one historical shipment for any missing-property tenant put every other missing-property tenant on cooldown. Instead of inventing a relationship between unrelated tenants, I used a fallback of using the address as their property_id and property name. This results in 34 eligible tenats on`2026-04-24` instead of`3`.
+I initially grouped the unassigned tenants into one shared `missing-property` group, but that produced only 3 eligible tenants because one historical shipment for any missing-property tenant put every other missing-property tenant on cooldown. Instead of inventing a relationship between unrelated tenants, I use each tenant's normalized address as the fallback property id and property name. This results in 34 eligible tenants on `2026-04-24` instead of 3.
 
-For duplicate tenants, the webapp startup will remove duplicate tenants from the database. For Casey Morgan, tenant `900001` is kept and tenant `900002` is deleted along with related enrollments, historical shipments, import rows, and shipment rows. This means reset does not bring the duplicate back. This would mean that there could be data lost from the deletion of the duplicate data, but that is a result from user error and not on our side.
+For duplicate tenants, the web app startup removes duplicate tenants from the local operational database. For Casey Morgan, tenant `900001` is kept and tenant `900002` is deleted along with related enrollments, historical shipments, import rows, and shipment rows. This means reset does not bring the duplicate back. The tradeoff is that this mutates the local demo database instead of preserving every raw source row, but it keeps the operational flow simple and guarantees duplicate tenants cannot accidentally participate in eligibility, export, or import matching.
 
 ## Rider Normalization
 
@@ -429,7 +429,7 @@ The import service loads tenants once, builds matcher indexes once, then calls t
 
 ```js
 const tenants = db.prepare("SELECT * FROM tenants ORDER BY id").all();
-const indexes = buildTenantIndexes(tenants, getDuplicateTenantIds(db));
+const indexes = buildTenantIndexes(tenants);
 
 for (const rawRow of rows) {
   const row = {
@@ -586,7 +586,7 @@ The score is additive and totals 100 points:
 Score interpretation:
 
 - `95-100`: very strong match. It can auto-match only if it is the single top candidate, there is no duplicate identity issue, and there is no `address2` conflict.
-- `90-94`: strong evidence, but still needs confirmation. In this dataset, this often means name, street, city, state, and ZIP match, but the unit evidence is missing or not strong enough.
+- `90-94`: strong evidence, but still needs confirmation. In this dataset, this often means name, street, city, state, and ZIP match, but the unit evidence is missing or not strong enough. The matcher labels this as `unit_missing_needs_review` when there is a plausible candidate but no unit/address2 evidence to confirm automatically.
 - `50-89`: plausible candidate for manual review. The UI shows the candidate so a person can decide.
 - below `50`: too weak to show as a useful candidate.
 
@@ -602,6 +602,8 @@ Auto-match requires:
 A row with otherwise strong evidence but conflicting `address2` still goes to manual review. `address2` often contains apartment or unit information, and in a large building the street address alone may not identify the correct tenant.
 
 Partial matches are still useful for manual review. For example, an old-address row can still show a plausible tenant if the full name, city, state, or ZIP match. This gives the user options without letting the system over-confidently auto-match.
+
+The manual review UI translates machine reasons into human-readable text. For example, a row with score `90`, no conflicting fields, and missing address2/unit data is shown as `Unit/address2 missing - confirm manually` instead of `no_plausible_candidate`, because there is a plausible candidate but the app is intentionally asking a human to confirm the unit-level evidence.
 
 ### Manual Review Decisions
 

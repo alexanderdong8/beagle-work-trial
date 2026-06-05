@@ -218,7 +218,7 @@ input[type="date"] {
 }
 
 .file-picker {
-  min-width: min(360px, 100%);
+  min-width: min(280px, 100%);
 }
 
 .file-picker-control {
@@ -240,7 +240,7 @@ input[type="date"] {
 
 .file-name {
   min-width: 0;
-  max-width: 190px;
+  max-width: 110px;
   color: var(--text);
   font-size: 0.86rem;
   font-weight: 700;
@@ -301,6 +301,21 @@ input[type="date"] {
 .download-button {
   min-width: 132px;
   color: #fff;
+}
+
+.import-flow .control-row {
+  flex: 1;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+}
+
+.import-flow .file-picker {
+  width: min(270px, 28vw);
+}
+
+.import-flow .primary-button {
+  min-width: 190px;
+  padding: 0 12px;
 }
 
 .muted {
@@ -567,6 +582,14 @@ tr:last-child td {
   .control-row,
   .subtabs {
     justify-content: flex-start;
+  }
+
+  .import-flow .control-row {
+    flex-wrap: wrap;
+  }
+
+  .import-flow .file-picker {
+    width: min(360px, 100%);
   }
 
   .stats-row {

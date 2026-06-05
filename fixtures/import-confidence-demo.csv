@@ -1,0 +1,13 @@
+carrier,custom_field_1,ship_date,shipment_id,name,address1,address2,city,state,zip
+UPS,25x16-1/2x1,2026-04-27T08:00:00Z,se-confidence-001,Seymour Gerlach,644 Abbey Field,Suite 518,Willview,OR,31781-5707
+UPS,20x20x1,2026-04-27T08:00:00Z,se-confidence-002,Willis Schumm,84405 Herzog Hill,,Croninmouth,TX,55960
+UPS,18x20x1,2026-04-27T08:00:00Z,se-confidence-003,Devin Jenkins,272 Wintheiser Parkways,Apt. 999,Onaberg,ND,92018-2799
+UPS,14x20x1,2026-04-27T08:00:00Z,se-confidence-004,German Gerhold,999 Former Willow Drive,Apt. 8,Elyseshire,AZ,62006-6690
+UPS,16x20x1,2026-04-27T08:00:00Z,se-confidence-005,Wrong Person,36362 Shonta Estates,Suite 517,Lake Willardbury,OK,73895
+UPS,20x25x1,2026-04-27T08:00:00Z,se-confidence-006,Arden Reichel,347 Keeling Fork,Suite 465,East Dave,RI,45807-7129
+UPS,18x18x1,2026-04-27T08:00:00Z,se-confidence-007,Imaginary Tenant,1 Nowhere Road,Apt. 1,Faketown,ZZ,99999
+UPS,,2026-04-27T08:00:00Z,se-confidence-008,Shaun Abbott,6353 Kirk Estates,Suite 856,Lake Elsetown,OR,77170
+UPS,twentyish-by-twenty,2026-04-27T08:00:00Z,se-confidence-009,Frankie Haley,610 Ernie Tunnel,Suite 138,Ivanchester,CO,33953
+UPS,16-20x25x1,2026-04-27T08:00:00Z,se-confidence-010,Marcus Bogisich,618 Kunze Lake,Suite 957,Sammiemouth,OH,35245
+UPS,20x,2026-04-27T08:00:00Z,se-confidence-011,Kiara Wilderman,7210 Kutch Plaza,Suite 564,South Allenaport,CO,59910-2947
+UPS,18x20x1,2026-04-27T08:00:00Z,se-confidence-012,Lizeth Wyman,,Apt. 307,Eloisestad,VT,63604-5421

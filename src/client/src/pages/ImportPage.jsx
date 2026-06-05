@@ -23,6 +23,57 @@ function candidateAddress(candidate) {
   return [candidate.address1, candidate.address2, candidate.city, candidate.state, candidate.zip].filter(Boolean).join(", ");
 }
 
+function reviewReasonLabel(reason) {
+  if (!reason) return "Needs manual review";
+  if (reason.startsWith("Missing required fields:")) return reason;
+
+  const labels = {
+    address2_conflict: "Unit/address2 does not match",
+    duplicate_tenant_identity: "Duplicate tenant identity",
+    field_conflict_needs_review: "Name or address fields conflict",
+    low_confidence_candidate: "Low-confidence candidate",
+    no_plausible_candidate: "No plausible tenant candidate",
+    old_address_possible: "Possible old address",
+    unit_missing_needs_review: "Unit/address2 missing - confirm manually",
+  };
+
+  return labels[reason] || reason.replaceAll("_", " ");
+}
+
+function missingRequiredFieldText(reason) {
+  if (!reason?.startsWith("Missing required fields:")) return null;
+  return `CSV is missing ${reason.replace("Missing required fields:", "").trim()}`;
+}
+
+function rowReviewText(row) {
+  const missingText = missingRequiredFieldText(row.match_reason);
+  if (missingText) return missingText;
+  if (row.conflicting_fields.length) return `Not matching: ${row.conflicting_fields.join(", ")}`;
+  if (row.match_score >= 90 && !row.matched_fields.includes("Address2")) {
+    return "Unit/address2 missing - confirm manually";
+  }
+  if (row.match_score >= 50) return "Plausible candidate needs manual confirmation";
+  return reviewReasonLabel(row.match_reason);
+}
+
+function candidateReviewText(candidate, row) {
+  const missingText = missingRequiredFieldText(row?.match_reason);
+  if (missingText) return `Needs confirmation: ${missingText}`;
+  if (candidate.conflicting_fields.length) {
+    return `Not matching: ${candidate.conflicting_fields.join(", ")}`;
+  }
+  if (
+    candidate.reason === "unit_missing_needs_review" ||
+    (candidate.score >= 90 && !candidate.matched_fields.includes("Address2"))
+  ) {
+    return "Needs confirmation: unit/address2 missing";
+  }
+  if (candidate.score >= 50) {
+    return "Needs confirmation: plausible partial match";
+  }
+  return `Needs confirmation: ${reviewReasonLabel(candidate.reason)}`;
+}
+
 function CandidateList({ rowId, onResolved }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -66,7 +117,7 @@ function CandidateList({ rowId, onResolved }) {
             <small>{candidateAddress(candidate)}</small>
           </div>
           <p className="mismatch-line">
-            Not matching: {candidate.conflicting_fields.length ? candidate.conflicting_fields.join(", ") : "None"}
+            {candidateReviewText(candidate, data.row)}
           </p>
           <button className="icon-button" disabled={busyTenantId === candidate.tenant_id} onClick={() => confirm(candidate.tenant_id)} type="button">
             <CheckCircle2 size={16} aria-hidden="true" />
@@ -285,7 +336,7 @@ export default function ImportPage() {
                       <h3>{row.raw_name}</h3>
                       <p>{addressLine(row)}</p>
                       <p className="mismatch-line">
-                        Not matching: {row.conflicting_fields.length ? row.conflicting_fields.join(", ") : row.match_reason}
+                        {rowReviewText(row)}
                       </p>
                       <button className="icon-button" disabled={dismissingId === row.id} onClick={() => dismiss(row.id)} type="button">
                         <XCircle size={16} aria-hidden="true" />

@@ -83,3 +83,18 @@ Good files to try:
 
 - `shipstation-export.csv`: the provided full fixture.
 - `fixtures/matching-demo-shipstation.csv`: a smaller demo file with auto matches, address conflicts, missing fields, and filter-size flags.
+- `fixtures/import-confidence-demo.csv`: a focused demo file for confidence scores, partial matches, missing required fields, and filter-size parse failures.
+
+## Assumptions And Tradeoffs
+
+- Property cooldowns are operational groups from `properties/properties.json`, not just tenant mailing addresses.
+- Tenants missing from the property file are assigned deterministic address-based fallback properties with a 90-day interval.
+- Export-created rows are stored as `ordered` shipments immediately, so the same property is not re-exported before partner tracking data comes back.
+- Import matching is intentionally conservative: strong name/address evidence can auto-match, but unit conflicts and ambiguous matches go to manual review.
+- Filter-size parse results are stored on the import row as JSON for simplicity in this small app. A separate filter-size table would be more queryable if reporting on filter dimensions became important.
+
+## Data Issues Found
+
+The fixture data includes duplicate property ids, duplicate tenant/property assignments, tenants missing from the property file, one duplicate tenant identity, one future-dated historical shipment relative to `2026-04-24`, and one historical shipment with an old address. The app records these findings in `data_quality_issues` during startup normalization.
+
+See [implementation.md](implementation.md) for the exact findings, resolutions, schema reasoning, matching score design, and future improvements.

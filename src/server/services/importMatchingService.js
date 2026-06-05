@@ -154,10 +154,12 @@ function reasonForCandidate(candidate) {
   if (candidate.isDuplicateIdentity) return "duplicate_tenant_identity";
   if (candidate.hasAddress2Conflict) return "address2_conflict";
   if (candidate.score >= 95) return "confident_name_address_zip";
+  if (candidate.score >= 90) return "unit_missing_needs_review";
   if (candidate.matchedFields.includes("Full name") && candidate.conflictingFields.includes("Address1")) {
     return "old_address_possible";
   }
-  return "no_plausible_candidate";
+  if (candidate.conflictingFields.length) return "field_conflict_needs_review";
+  return "low_confidence_candidate";
 }
 
 function findMatch(row, indexes) {

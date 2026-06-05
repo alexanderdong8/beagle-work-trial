@@ -19,6 +19,8 @@ const { buildTenantIndexes, findMatch } = require("./importMatchingService");
 const SHIPSTATION_FILE = path.join(repoRoot, "shipstation-export.csv");
 
 function requiredRowIssue(row) {
+  // Required fields mirror the minimum data needed to create or reconcile a
+  // shipment record safely.
   const missing = ["name", "address1", "city", "state", "zip", "shipment_id", "ship_date"].filter(
     (field) => !String(row[field] || "").trim(),
   );
@@ -26,6 +28,8 @@ function requiredRowIssue(row) {
 }
 
 function createOrUpdateShipment(db, importRow, tenantId) {
+  // First priority: if this tracking number already exists, treat this as a
+  // reconciliation update rather than a new shipment insert.
   const existing = db.prepare("SELECT * FROM shipments WHERE tracking_number = ?").get(importRow.shipment_id);
   if (existing) {
     db.prepare(
@@ -69,6 +73,8 @@ function createOrUpdateShipment(db, importRow, tenantId) {
     .get(tenantId, property.property_id);
 
   if (ordered) {
+    // Common case: export created an "ordered" row earlier; import upgrades it
+    // to "shipped" once ShipStation confirms tracking.
     db.prepare(
       `
         UPDATE shipments
@@ -85,6 +91,8 @@ function createOrUpdateShipment(db, importRow, tenantId) {
     return ordered.id;
   }
 
+  // Fallback: shipment did not originate from our export table, so insert a new
+  // shipped row sourced from ShipStation.
   const info = db
     .prepare(
       `
@@ -126,6 +134,8 @@ function importShipStationFile(db, options = {}) {
   const importedAt = new Date().toISOString();
 
   const tx = db.transaction(() => {
+    // This app keeps one active import snapshot for review; re-import replaces
+    // prior rows so the UI always reflects the latest uploaded file.
     db.prepare("DELETE FROM shipment_import_rows").run();
 
     const insertRow = db.prepare(
@@ -144,6 +154,7 @@ function importShipStationFile(db, options = {}) {
     );
 
     for (const rawRow of rows) {
+      // Normalize input into a predictable shape before validation/matching.
       const row = {
         carrier: rawRow.carrier || null,
         custom_field_1: rawRow.custom_field_1 || "",
@@ -159,6 +170,7 @@ function importShipStationFile(db, options = {}) {
       const requiredIssue = requiredRowIssue(rawRow);
       const sizeResults = parseFilterSizes(row.custom_field_1);
 
+      // Required-field failures never auto-match, but still persist for review.
       const match = requiredIssue
         ? {
             matchedTenant: null,
@@ -213,6 +225,8 @@ function parseJsonArray(value) {
 }
 
 function decorateRows(rows) {
+  // Parse JSON payload columns into arrays so API callers receive ready-to-use
+  // objects instead of JSON strings.
   return rows.map((row) => ({
     ...row,
     matched_fields: parseJsonArray(row.matched_fields),
@@ -242,6 +256,7 @@ function latestImportBatch(db) {
   const rows = decorateRows(getCurrentImportRows(db));
   if (!rows.length) return null;
 
+  // Batch metadata is derived from the row snapshot (no separate batch table).
   const batch = {
     filename: rows[0].filename,
     imported_at: rows[0].imported_at,
@@ -264,6 +279,7 @@ function buildFlags(rows) {
   const flags = [];
   for (const row of rows) {
     if (row.match_status === "needs_review") {
+      // Matching ambiguity or missing required data becomes a review flag.
       flags.push({
         import_row_id: row.id,
         shipment_id: row.shipment_id,
@@ -277,6 +293,7 @@ function buildFlags(rows) {
 
     for (const size of row.filter_sizes) {
       if (size.parse_status === "parsed") continue;
+      // Keep size parsing issues visible alongside match-review issues.
       flags.push({
         import_row_id: row.id,
         shipment_id: row.shipment_id,
@@ -312,6 +329,8 @@ function getCandidatesForImportRow(db, importRowId) {
   if (!row) return null;
   const tenants = db.prepare("SELECT * FROM tenants ORDER BY id").all();
   const indexes = buildTenantIndexes(tenants);
+  // Re-run matching logic for this row and return scored candidates for manual
+  // reviewer confirmation.
   const match = findMatch(
     {
       name: row.raw_name,
@@ -329,6 +348,8 @@ function getCandidatesForImportRow(db, importRowId) {
 function confirmImportRow(db, importRowId, tenantId) {
   const row = db.prepare("SELECT * FROM shipment_import_rows WHERE id = ?").get(importRowId);
   if (!row) return null;
+  // Manual confirmation reuses the same shipment reconciliation logic as auto
+  // matching so status transitions stay consistent.
   const shipmentId = createOrUpdateShipment(
     db,
     {
@@ -352,6 +373,8 @@ function confirmImportRow(db, importRowId, tenantId) {
 }
 
 function dismissImportRow(db, importRowId) {
+  // Dismiss keeps the raw row for audit/history but marks it complete for the
+  // current review queue.
   db.prepare(
     `
       UPDATE shipment_import_rows

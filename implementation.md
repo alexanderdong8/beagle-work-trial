@@ -87,7 +87,7 @@ CREATE TABLE shipment_import_rows (
 The important statuses are:
 
 - `auto_matched`: the system matched the row automatically;
-- `needs_review`: a human must confirm or dismiss the row;
+- `needs_review`: a human must confirm or reject/dismiss the row;
 - `manually_matched`: a human confirmed a tenant candidate;
 - `dismissed`: a human decided the row should not create/update a shipment.
 
@@ -621,9 +621,9 @@ I originally showed more raw technical fields and match badges in the review car
 Manual review supports two actions:
 
 - `Confirm Match`: creates or updates the shipment as `shipped`, attaches parsed filter sizes, and changes the row to `manually_matched`;
-- `Dismiss Row`: marks the row `dismissed` so it no longer blocks the review queue.
+- `Reject and Dismiss`: marks the row `dismissed` so it no longer blocks the review queue.
 
-Dismiss is important because some partner rows may be irrelevant, duplicated, or too ambiguous to resolve during the current workflow. It gives the reviewer a way to clear the queue without deleting the audit record.
+Reject and Dismiss is important because some partner rows may be irrelevant, duplicated, or too ambiguous to resolve during the current workflow. It gives the reviewer a way to clear the queue without deleting the audit record.
 
 ### Shipment Status From Import
 
@@ -681,9 +681,9 @@ The main API endpoints are:
 - `GET /api/imports`: returns the current import rows with matched rows, review rows, and flags;
 - `GET /api/import-rows/:id/candidates`: recomputes candidate tenants for one review row;
 - `POST /api/import-rows/:id/confirm`: manually confirms a candidate tenant;
-- `POST /api/import-rows/:id/dismiss`: dismisses an unresolved import row.
+- `POST /api/import-rows/:id/dismiss`: rejects/dismisses an unresolved import row.
 
-I used explicit endpoints instead of hiding everything behind one generic import endpoint because each operation has a different workflow meaning: importing a file, reviewing candidates, confirming a tenant, and dismissing a row are separate user actions.
+I used explicit endpoints instead of hiding everything behind one generic import endpoint because each operation has a different workflow meaning: importing a file, reviewing candidates, confirming a tenant, and rejecting/dismissing a row are separate user actions.
 
 ## CSV Columns
 

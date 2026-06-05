@@ -183,8 +183,7 @@ export default function ImportPage() {
 
       {resetResult ? (
         <div className="notice notice-muted">
-          Reset complete. Removed {resetResult.deleted_import_shipments} imported shipments,{" "}
-          and {resetResult.deleted_import_rows} import rows.
+          Reset complete.
         </div>
       ) : null}
 
@@ -278,7 +277,7 @@ export default function ImportPage() {
                       </p>
                       <button className="icon-button" disabled={dismissingId === row.id} onClick={() => dismiss(row.id)} type="button">
                         <XCircle size={16} aria-hidden="true" />
-                        <span>Dismiss Row</span>
+                        <span>Reject and Dismiss</span>
                       </button>
                     </div>
                     <CandidateList rowId={row.id} onResolved={loadLatest} />
@@ -306,7 +305,7 @@ export default function ImportPage() {
                       <tr key={`${flag.import_row_id}-${flag.issue_type}-${index}`}>
                         <td>#{flag.import_row_id}<small>{flag.shipment_id}</small></td>
                         <td>{flag.raw_recipient}</td>
-                        <td><StatusPill tone="warn">{flag.issue_type}</StatusPill><small>{flag.explanation}</small></td>
+                        <td>{flag.explanation || flag.issue_type}</td>
                         <td>{flag.raw_value || "Blank"}</td>
                         <td>{flag.follow_up}</td>
                       </tr>

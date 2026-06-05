@@ -88,8 +88,7 @@ export default function EligibilityPage() {
 
       {resetResult ? (
         <div className="notice notice-muted">
-          Reset complete. Removed {resetResult.deleted_export_shipments} exported shipments and{" "}
-          {resetResult.deleted_import_shipments} imported shipments, plus {resetResult.deleted_import_rows} import rows.
+          Reset complete.
         </div>
       ) : null}
 

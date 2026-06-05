@@ -7,6 +7,7 @@
 const { normalizeAddressPart, normalizeText, tenantFullName } = require("../utils/strings");
 
 function normalizeZip(value) {
+  // ShipStation can emit short ZIPs like "1234"; pad to 5 for stable matching.
   const zip = String(value || "").trim();
   if (/^\d{1,4}$/.test(zip)) return zip.padStart(5, "0");
   return zip;
@@ -28,6 +29,8 @@ function buildTenantIndexes(tenants, duplicateTenantIds = new Set()) {
   };
 
   for (const tenant of tenants) {
+    // Precompute normalized fields once so candidate scoring avoids repeating
+    // string normalization work for every import row.
     const indexedTenant = {
       ...tenant,
       isDuplicateIdentity: duplicateTenantIds.has(tenant.id),
@@ -50,6 +53,7 @@ function buildTenantIndexes(tenants, duplicateTenantIds = new Set()) {
 }
 
 function normalizeImportRow(row) {
+  // Apply the same normalization strategy used for tenant indexing.
   return {
     normalizedName: normalizeText(row.name),
     normalizedAddress1: normalizeAddressPart(row.address1),
@@ -145,6 +149,7 @@ function collectCandidateTenants(row, indexes) {
 }
 
 function reasonForCandidate(candidate) {
+  // These machine-readable reasons are surfaced in the review UI and flags API.
   if (!candidate) return "no_plausible_candidate";
   if (candidate.isDuplicateIdentity) return "duplicate_tenant_identity";
   if (candidate.hasAddress2Conflict) return "address2_conflict";
@@ -164,6 +169,8 @@ function findMatch(row, indexes) {
   const top = candidates[0] || null;
   const topTies = top ? candidates.filter((candidate) => candidate.score === top.score) : [];
   const hasDuplicateTie = topTies.length > 1 || topTies.some((candidate) => candidate.isDuplicateIdentity);
+  // Auto-match is intentionally strict to reduce false positives:
+  // high score, no tie, no address2 conflict, and not duplicate identity.
   const autoMatch =
     top &&
     top.score >= 95 &&

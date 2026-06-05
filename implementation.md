@@ -10,7 +10,7 @@ This implementation now covers the four main workflow requirements of the work t
 - record exports as shipment orders so tenants/properties are not re-exported immediately;
 - import a ShipStation-style shipment file, match rows back to tenants/shipments, parse filter sizes, and surface rows that need manual review.
 
-I built the app as a React UI with an Express API and SQLite persistence. The React app is intentionally clean and operational rather than dashboard-heavy. The shipping side has a date selector, a `Ship Batch` action, a reset action for demos, and a `Download` button after a batch is created. The import side has a CSV file picker, an `Import Selected CSV` action, and one tabbed results area where the reviewer can switch between `Matched Rows`, `Manual Review`, and `Flags` without scrolling through unrelated sections.
+App was built with React, Express, and SQLite. 
 
 ## Schema Decisions
 
@@ -668,44 +668,6 @@ twenty-by-twenty -> 20x20
 
 Unsupported semantic text becomes a flag. Ex. `twentyish-by-twenty`
 
-## Demo Reset
-
-Because this is a work-trial/demo app, I added a reset action at `POST /api/reset-demo-state` and a Reset Demo button on the shipment page.
-
-The reset deletes rows created by the demo workflows:
-
-- `shipments` where `source = 'export'`;
-- `shipments` where `source = 'shipstation_import'`;
-- all `shipment_import_rows`.
-
-It also restores normalized historical shipments back to `status = 'historical'` if an import run temporarily updated an existing historical tracking number to `shipped`.
-
-It intentionally keeps:
-
-- raw source tables;
-- normalized properties;
-- current property assignments in `properties`;
-- data-quality issues;
-- historical shipments.
-
-This lets the reviewer run the `2026-04-24` export flow, observe that ordered shipments immediately start cooldown, import the ShipStation file, inspect review/flag behavior, then reset back to the seeded operational state and rerun the demo.
-
-## UI Flow
-
-The first screen does not pre-render eligible tenants or excluded tenants. Instead, the operator chooses an `asOf` date and clicks `Ship Batch`.
-
-`Ship Batch` runs the eligibility engine, creates `ordered` shipment rows, and returns the generated CSV to the browser. The UI then shows a separate `Download` button for that CSV.
-
-I removed the analytics-style counts and the excluded-tenant table from the main shipping UI because they made the page feel more like a dashboard than a shipping workflow. The underlying API still exposes eligibility detail for debugging and future screens.
-
-The Import tab follows the same operational style. It does not show a large dashboard by default. The operator chooses a CSV file, clicks `Import Selected CSV`, then the app shows summary counts and a single tabbed results area:
-
-- `Matched Rows`: automatically matched import rows with match evidence;
-- `Manual Review`: rows that need a human tenant decision;
-- `Flags`: missing, ambiguous, or unusable data.
-
-I removed the separate `Size warnings` indicator from the UI and database. Size issues are represented as flag rows derived from `shipment_import_rows.filter_sizes`.
-
 ## API Surface
 
 The main API endpoints are:
@@ -786,14 +748,6 @@ Flags are not stored in a separate table. They are derived from `shipment_import
 
 ## Known Limitations And Future Work
 
-The import now supports choosing a CSV file in the browser. A production version would add stronger upload validation, larger file-size handling, and probably background processing for large imports.
-
-Manual review currently supports confirm and dismiss. A fuller operations tool would also let the reviewer edit parsed filter sizes, correct raw address fields, and leave notes explaining why a row was dismissed.
-
-The candidate matcher is deterministic and explainable, but it is still rule-based. For a larger dataset, I would add stronger address normalization, unit parsing, phonetic or fuzzy name matching, and more automated tests around false positives.
-
-The app stores import flags as derived UI data from `shipment_import_rows` instead of a separate `flags` table. That is a good v1 choice because it avoids duplicating issue state. If flags later need assignment, comments, due dates, or resolution history, I would add a real `review_flags` table.
 
 
-
-For future, I would first clean up the UI to make everything much more clean and sleek. I would also then consider the scalability for the platform, and start to consider a larger database instead of using a sqllite. 
+For future work, I would improve the UI to make everything more clean, sleek and modern. I would also then consider the scalability for the platform, like a larger database for more files such as a postgresql DB instead of a sqlite DB.  For large CSV files the processing might have to be a little bit different because linearly parsing thorugh it may take a too long. 

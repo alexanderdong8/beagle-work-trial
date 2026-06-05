@@ -193,9 +193,9 @@ name: Fallback: {address1}
 shipment_interval_days: 90
 ```
 
-I considered grouping every unassigned tenant into one shared `missing-property` group, but that produced incorrect operational behavior: one historical shipment for any missing-property tenant put every other missing-property tenant on cooldown. Since the source file does not tell me that those tenants share a building, using their normalized address as a fallback property is safer. It preserves property-level cooldown behavior without inventing a relationship between unrelated tenants. The tradeoff is more fallback property ids, but the eligibility result stays correct: `34` eligible tenants on `2026-04-24`, not `3`.
+I intially had the unassigned tenants into one shared `missing-property` group, but that only led to 3 eligible tenants because one historical shipment for any missing-property tenant put every other missing-property tenant on cooldown. Instead of inventing a relationship between unrelated tenants, I used a fallback of using the address as their property_id and property name. This results in 32 eligible tenats on`2026-04-24` instead of`3`.
 
-For duplicate tenant identities, startup normalization removes the non-canonical duplicate from the operational database. For Casey Morgan, tenant `900001` is kept and tenant `900002` is deleted along with related enrollments, historical shipments, import rows, and shipment rows. This means reset does not bring the duplicate back. The tradeoff is that the raw local SQLite database is no longer a perfect copy of the fixture after startup, but the app begins every run from cleaned operational data.
+For duplicate tenants, the webapp startup will remove duplicate tenants from the database. For Casey Morgan, tenant `900001` is kept and tenant `900002` is deleted along with related enrollments, historical shipments, import rows, and shipment rows. This means reset does not bring the duplicate back. This would mean that there could be data lost from the deletion of the duplicate data, but that is a result from user error and not on our side.
 
 ## Rider Normalization
 
@@ -343,91 +343,13 @@ source = export
 
 Ordered shipments count for cooldown immediately. Otherwise, running the export twice could create duplicate orders before the shipping partner returns tracking data.
 
-Cooldown-counting statuses are:
-
-- `historical`;
-- `ordered`;
-- `shipped`;
-- `delivered`;
-- `confirmed`.
-
-`cancelled` does not count.
-
-## Demo Reset
-
-Because this is a work-trial/demo app, I added a reset action at `POST /api/reset-demo-state` and a Reset Demo button on the shipment page.
-
-The reset deletes rows created by the demo workflows:
-
-- `shipments` where `source = 'export'`;
-- `shipments` where `source = 'shipstation_import'`;
-- all `shipment_import_rows`.
-
-It also restores normalized historical shipments back to `status = 'historical'` if an import run temporarily updated an existing historical tracking number to `shipped`.
-
-It intentionally keeps:
-
-- raw source tables;
-- normalized properties;
-- current property assignments in `properties`;
-- data-quality issues;
-- historical shipments.
-
-This lets the reviewer run the `2026-04-24` export flow, observe that ordered shipments immediately start cooldown, import the ShipStation file, inspect review/flag behavior, then reset back to the seeded operational state and rerun the demo.
-
-## UI Flow
-
-The first screen does not pre-render eligible tenants or excluded tenants. Instead, the operator chooses an `asOf` date and clicks `Ship Batch`.
-
-`Ship Batch` runs the eligibility engine, creates `ordered` shipment rows, and returns the generated CSV to the browser. The UI then shows a separate `Download` button for that CSV.
-
-I removed the analytics-style counts and the excluded-tenant table from the main shipping UI because they made the page feel more like a dashboard than a shipping workflow. The underlying API still exposes eligibility detail for debugging and future screens.
-
-The Import tab follows the same operational style. It does not show a large dashboard by default. The operator chooses a CSV file, clicks `Import Selected CSV`, then the app shows summary counts and a single tabbed results area:
-
-- `Matched Rows`: automatically matched import rows with match evidence;
-- `Manual Review`: rows that need a human tenant decision;
-- `Flags`: missing, ambiguous, or unusable data.
-
-I removed the separate `Size warnings` indicator from the UI and database. Size issues are represented as flag rows derived from `shipment_import_rows.filter_sizes`.
-
-## API Surface
-
-The main API endpoints are:
-
-- `GET /api/eligibility?asOf=YYYY-MM-DD`: returns eligibility detail for a selected date;
-- `POST /api/exports`: runs eligibility, creates `ordered` shipments, and returns the CSV;
-- `GET /api/shipments`: lists shipment/order rows;
-- `GET /api/data-quality`: lists recorded fixture issues and resolutions;
-- `POST /api/reset-demo-state`: clears demo-created export/import state;
-- `POST /api/imports/shipstation`: imports CSV text posted by the React file picker;
-- `GET /api/imports`: returns the current import rows with matched rows, review rows, and flags;
-- `GET /api/import-rows/:id/candidates`: recomputes candidate tenants for one review row;
-- `POST /api/import-rows/:id/confirm`: manually confirms a candidate tenant;
-- `POST /api/import-rows/:id/dismiss`: dismisses an unresolved import row.
-
-I used explicit endpoints instead of hiding everything behind one generic import endpoint because each operation has a different workflow meaning: importing a file, reviewing candidates, confirming a tenant, and dismissing a row are separate user actions.
-
-## CSV Columns
-
-The export includes:
-
-- `tenant_id`: stable internal reference for debugging and import reconciliation;
-- `property_id`: shows the cooldown group used;
-- `first_name`, `last_name`: recipient name split into separate fields so downstream systems can choose how to format the label;
-- `address1`, `address2`, `city`, `state`, `zip`: required delivery address fields;
-- `shipment_date`: date the order was generated;
-- `minimum_next_shipment_date`: explains future cooldown behavior.
-
-I intentionally do not include tracking number because it does not exist until partner import. I also do not include enrollment/rider data because that is internal eligibility evidence, not shipping instruction data.
-
-ZIP codes are exported exactly as stored in SQLite. For example, tenant `175236` has zip `06323`, and the raw CSV contains `06323` without an apostrophe. Spreadsheet apps may display a warning or show an apostrophe in the formula bar because they are treating the ZIP as text to preserve the leading zero. That is expected; ZIP codes should be text, not numbers.
-
 ## ShipStation Import And Manual Review
 
 The Import tab handles the fourth requirement. It imports a selected ShipStation-style CSV file, stores every raw row, attempts tenant matching, parses filter sizes, updates or creates shipment records, and exposes review/flag queues.
 
-The app still has the original `shipstation-export.csv` fixture, but the UI no longer hardcodes that file. I also added `fixtures/matching-demo-shipstation.csv` as a smaller import demo that intentionally exercises more review behavior:
+The app handles the import of a CSV file that contains shipping data. An additional exemple `fixtures\matching-demo-shipstation.csv` was generated to further test cases where a perfect match is not found. 
+
+The shipstation import handles and covers these cases:
 
 - exact full-name/address matches;
 - address and unit conflicts that require manual review;
@@ -443,8 +365,6 @@ The UI exposes three result views as tabs inside one Import Results section:
 - matched rows: rows that confidently matched to tenants;
 - manual review queue: rows that need a human tenant decision;
 - flags: missing, ambiguous, or unusable data that needs follow-up.
-
-I removed the separate `Size warnings` summary indicator from the UI and database. Filter-size parse problems are stored in the import row's `filter_sizes` JSON and surfaced in the Flags tab.
 
 ### Import Flow
 
@@ -463,7 +383,7 @@ The flow is:
 9. Store the raw CSV row, match result, and filter-size JSON in `shipment_import_rows`.
 10. Return the current import detail for the React UI.
 
-The import is intentionally tolerant. A bad row or bad filter-size value does not fail the whole file. The row is stored, the issue is recorded, and the UI surfaces it in `Manual Review` or `Flags`.
+The import was designed to be tolerant, where a bad row or bad filter-size value does not fail the whole file. The row is stored, the issue is recorded, and the UI surfaces it in `Manual Review` or `Flags`.
 
 When a row auto-matches or is manually confirmed, the app creates or updates a shipment:
 
@@ -472,16 +392,6 @@ When a row auto-matches or is manually confirmed, the app creates or updates a s
 - otherwise, create a new `shipments` row with `source = 'shipstation_import'` and `status = 'shipped'`.
 
 That three-step behavior lets the import work both as a follow-up to exports created by this app and as a backfill/import of shipments that already exist in the partner file.
-
-### Import Table
-
-I use one import-specific table:
-
-- `shipment_import_rows`: one row per raw ShipStation CSV row, including matching fields and normalized filter-size JSON.
-
-I did not add a `shipment_import_candidates` table. Candidate tenant options are derived from current tenant data and recomputed when the review UI opens. This keeps the schema smaller.
-
-I also removed the separate `shipment_filter_sizes` table. Storing normalized filter-size results on the import row is less queryable, but it removes another table and fits the UI: filter-size issues are reviewed together with the raw CSV row they came from.
 
 ### Matching Confidence
 
@@ -494,11 +404,11 @@ The matcher normalizes:
 - address2;
 - city;
 - state;
-- ZIP, including left-padding values like `6323` to `06323`.
+- ZIP
 
-The matched rows table still shows matched-field badges because it is an audit view: the reviewer can see why the automatic match was trusted.
+The matched rows table still shows matched-field badges so the reviewer can see why the automatic match was trusted.
 
-The manual review queue is intentionally simpler. Each review item shows the raw recipient name and full address from ShipStation, each candidate tenant's name and full address, a `Confidence score`, and a short `Not matching` line. I chose this over showing every raw field separately because the human decision is mainly, "Is this the same person/address?" The mismatch line keeps the important conflict visible without making the review card feel like a database diff.
+The manual review queue is intentionally simpler. Each review item shows the raw recipient name and full address from ShipStation, each candidate tenant's name and full address, a `Confidence score`, and a short `Not matching` line.
 
 Matched rows, the manual review queue, and flags are shown as tabs inside the Import Results section instead of as stacked sections. This keeps the import page compact and lets the reviewer focus on one type of follow-up at a time: automatic matches, tenant matching, or data-quality flags.
 
@@ -509,7 +419,7 @@ The matcher does **not** scan every tenant row for every CSV row. Instead, it do
 1. **Build in-memory lookup indexes once per import run** (JavaScript `Map`s created by `buildTenantIndexes()`).
 2. **For each CSV row, use those indexes to fetch a small candidate set**, then score only those candidates.
 
-This is where the “`O(1)`” idea comes from: `Map.get(key)` is average-case `O(1)`, so looking up “tenants with this normalized name” or “tenants with this normalized address+ZIP” is constant-time *per lookup*. The full match is not purely `O(1)` end-to-end because candidates still need to be scored and sorted, but in practice the candidate set is small, so this avoids a much larger `O(number_of_tenants)` scan for each import row.
+This is what allows`O(1)` lookup: `Map.get(key)` is average-case `O(1)`, so looking up “tenants with this normalized name” or “tenants with this normalized address+ZIP” is constant-time *per lookup*. The full match is not purely `O(1)` end-to-end because candidates still need to be scored and sorted, but in practice the candidate set is small, so this avoids a much larger `O(number_of_tenants)` scan for each import row.
 
 Note that these matcher “indexes” are **not SQLite indexes**. SQLite indexes speed up SQL queries. Here, the matcher indexes are in-memory hash maps used after the tenant rows have already been loaded.
 
@@ -537,7 +447,14 @@ for (const rawRow of rows) {
 
   const requiredIssue = requiredRowIssue(rawRow);
   const match = requiredIssue
-    ? { matchedTenant: null, matchStatus: "needs_review", matchScore: 0, matchReason: "missing_required_fields", matchedFields: [], conflictingFields: [] }
+    ? {
+        matchedTenant: null,
+        matchStatus: "needs_review",
+        matchScore: 0,
+        matchReason: "missing_required_fields",
+        matchedFields: [],
+        conflictingFields: [],
+      }
     : findMatch(row, indexes);
 }
 ```
@@ -570,9 +487,21 @@ for (const tenant of tenants) {
   };
 
   addToIndex(indexes.byName, indexedTenant.normalizedName, indexedTenant);
-  addToIndex(indexes.byAddress1Zip, `${indexedTenant.normalizedAddress1}|${indexedTenant.normalizedZip}`, indexedTenant);
-  addToIndex(indexes.byAddress1, indexedTenant.normalizedAddress1, indexedTenant);
-  addToIndex(indexes.byAddress2, indexedTenant.normalizedAddress2, indexedTenant);
+  addToIndex(
+    indexes.byAddress1Zip,
+    `${indexedTenant.normalizedAddress1}|${indexedTenant.normalizedZip}`,
+    indexedTenant,
+  );
+  addToIndex(
+    indexes.byAddress1,
+    indexedTenant.normalizedAddress1,
+    indexedTenant,
+  );
+  addToIndex(
+    indexes.byAddress2,
+    indexedTenant.normalizedAddress2,
+    indexedTenant,
+  );
   addToIndex(indexes.byZip, indexedTenant.normalizedZip, indexedTenant);
 }
 ```
@@ -585,7 +514,11 @@ For one import row, the matcher tries several index lookups and unions the resul
 
 ```js
 addAll(indexes.byName.get(normalized.normalizedName));
-addAll(indexes.byAddress1Zip.get(`${normalized.normalizedAddress1}|${normalized.normalizedZip}`));
+addAll(
+  indexes.byAddress1Zip.get(
+    `${normalized.normalizedAddress1}|${normalized.normalizedZip}`,
+  ),
+);
 addAll(indexes.byAddress1.get(normalized.normalizedAddress1));
 addAll(indexes.byZip.get(normalized.normalizedZip));
 
@@ -607,7 +540,9 @@ const candidates = collectCandidateTenants(row, indexes)
   .sort((a, b) => b.score - a.score || a.tenant.id - b.tenant.id);
 
 const top = candidates[0] || null;
-const topTies = top ? candidates.filter((candidate) => candidate.score === top.score) : [];
+const topTies = top
+  ? candidates.filter((candidate) => candidate.score === top.score)
+  : [];
 const autoMatch =
   top &&
   top.score >= 95 &&
@@ -731,7 +666,77 @@ The parser also supports simple semantic text such as:
 twenty-by-twenty -> 20x20
 ```
 
-Unsupported semantic text becomes a flag.
+Unsupported semantic text becomes a flag. Ex. `twentyish-by-twenty`
+
+## Demo Reset
+
+Because this is a work-trial/demo app, I added a reset action at `POST /api/reset-demo-state` and a Reset Demo button on the shipment page.
+
+The reset deletes rows created by the demo workflows:
+
+- `shipments` where `source = 'export'`;
+- `shipments` where `source = 'shipstation_import'`;
+- all `shipment_import_rows`.
+
+It also restores normalized historical shipments back to `status = 'historical'` if an import run temporarily updated an existing historical tracking number to `shipped`.
+
+It intentionally keeps:
+
+- raw source tables;
+- normalized properties;
+- current property assignments in `properties`;
+- data-quality issues;
+- historical shipments.
+
+This lets the reviewer run the `2026-04-24` export flow, observe that ordered shipments immediately start cooldown, import the ShipStation file, inspect review/flag behavior, then reset back to the seeded operational state and rerun the demo.
+
+## UI Flow
+
+The first screen does not pre-render eligible tenants or excluded tenants. Instead, the operator chooses an `asOf` date and clicks `Ship Batch`.
+
+`Ship Batch` runs the eligibility engine, creates `ordered` shipment rows, and returns the generated CSV to the browser. The UI then shows a separate `Download` button for that CSV.
+
+I removed the analytics-style counts and the excluded-tenant table from the main shipping UI because they made the page feel more like a dashboard than a shipping workflow. The underlying API still exposes eligibility detail for debugging and future screens.
+
+The Import tab follows the same operational style. It does not show a large dashboard by default. The operator chooses a CSV file, clicks `Import Selected CSV`, then the app shows summary counts and a single tabbed results area:
+
+- `Matched Rows`: automatically matched import rows with match evidence;
+- `Manual Review`: rows that need a human tenant decision;
+- `Flags`: missing, ambiguous, or unusable data.
+
+I removed the separate `Size warnings` indicator from the UI and database. Size issues are represented as flag rows derived from `shipment_import_rows.filter_sizes`.
+
+## API Surface
+
+The main API endpoints are:
+
+- `GET /api/eligibility?asOf=YYYY-MM-DD`: returns eligibility detail for a selected date;
+- `POST /api/exports`: runs eligibility, creates `ordered` shipments, and returns the CSV;
+- `GET /api/shipments`: lists shipment/order rows;
+- `GET /api/data-quality`: lists recorded fixture issues and resolutions;
+- `POST /api/reset-demo-state`: clears demo-created export/import state;
+- `POST /api/imports/shipstation`: imports CSV text posted by the React file picker;
+- `GET /api/imports`: returns the current import rows with matched rows, review rows, and flags;
+- `GET /api/import-rows/:id/candidates`: recomputes candidate tenants for one review row;
+- `POST /api/import-rows/:id/confirm`: manually confirms a candidate tenant;
+- `POST /api/import-rows/:id/dismiss`: dismisses an unresolved import row.
+
+I used explicit endpoints instead of hiding everything behind one generic import endpoint because each operation has a different workflow meaning: importing a file, reviewing candidates, confirming a tenant, and dismissing a row are separate user actions.
+
+## CSV Columns
+
+The export includes:
+
+- `tenant_id`: stable internal reference for debugging and import reconciliation;
+- `property_id`: shows the cooldown group used;
+- `first_name`, `last_name`: recipient name split into separate fields so downstream systems can choose how to format the label;
+- `address1`, `address2`, `city`, `state`, `zip`: required delivery address fields;
+- `shipment_date`: date the order was generated;
+- `minimum_next_shipment_date`: explains future cooldown behavior.
+
+I intentionally do not include tracking number because it does not exist until partner import. I also do not include enrollment/rider data because that is internal eligibility evidence, not shipping instruction data.
+
+ZIP codes are exported exactly as stored in SQLite. For example, tenant `175236` has zip `06323`, and the raw CSV contains `06323` without an apostrophe. Spreadsheet apps may display a warning or show an apostrophe in the formula bar because they are treating the ZIP as text to preserve the leading zero. That is expected; ZIP codes should be text, not numbers.
 
 ### Unusable Size Data And Follow-up
 
@@ -779,16 +784,6 @@ follow-up: Check the source order for the missing dimension.
 
 Flags are not stored in a separate table. They are derived from `shipment_import_rows.match_status`, `shipment_import_rows.match_reason`, and the `filter_sizes` JSON stored on the same row.
 
-### Import Reset
-
-Reset Demo clears import-created state too:
-
-- import rows;
-- import-created shipments;
-- export-created shipments.
-
-It keeps the cleaned source tables, normalized properties, data-quality issues, and normalized historical shipments. Duplicate tenant rows removed at startup are not restored by reset.
-
 ## Known Limitations And Future Work
 
 The import now supports choosing a CSV file in the browser. A production version would add stronger upload validation, larger file-size handling, and probably background processing for large imports.
@@ -798,3 +793,7 @@ Manual review currently supports confirm and dismiss. A fuller operations tool w
 The candidate matcher is deterministic and explainable, but it is still rule-based. For a larger dataset, I would add stronger address normalization, unit parsing, phonetic or fuzzy name matching, and more automated tests around false positives.
 
 The app stores import flags as derived UI data from `shipment_import_rows` instead of a separate `flags` table. That is a good v1 choice because it avoids duplicating issue state. If flags later need assignment, comments, due dates, or resolution history, I would add a real `review_flags` table.
+
+
+
+For future, I would first clean up the UI to make everything much more clean and sleek. I would also then consider the scalability for the platform, and start to consider a larger database instead of using a sqllite. 

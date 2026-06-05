@@ -10,7 +10,7 @@ This implementation now covers the four main workflow requirements of the work t
 - record exports as shipment orders so tenants/properties are not re-exported immediately;
 - import a ShipStation-style shipment file, match rows back to tenants/shipments, parse filter sizes, and surface rows that need manual review.
 
-I built the app as a React UI with an Express API and SQLite persistence. The React app is intentionally clean and operational rather than dashboard-heavy. The shipping side has a date selector, a `Ship Batch` action, a reset action for demos, and a `Download` button after a batch is created. The import side has an `Import ShipStation File` action and one tabbed results area where the reviewer can switch between `Matched Rows`, `Manual Review`, and `Flags` without scrolling through unrelated sections.
+I built the app as a React UI with an Express API and SQLite persistence. The React app is intentionally clean and operational rather than dashboard-heavy. The shipping side has a date selector, a `Ship Batch` action, a reset action for demos, and a `Download` button after a batch is created. The import side has a CSV file picker, an `Import Selected CSV` action, and one tabbed results area where the reviewer can switch between `Matched Rows`, `Manual Review`, and `Flags` without scrolling through unrelated sections.
 
 ## Schema Decisions
 
@@ -49,49 +49,6 @@ Stores all shipment/order records in one place. For each eligible tenant that is
 
 Historical shipments are normalized into this table with `source = 'historical'` and `status = 'historical'`. Export-created rows use `source = 'export'` and `status = 'ordered'`.
 
-### `shipment_batches`
-
-Stores one CSV export run.
-
-This is useful now because it groups all shipment rows created by one export and allows the same CSV to be downloaded again. It is useful later because a ShipStation import can be matched back to a batch, batch status can move from `exported` to `partially_imported` or `imported`, and manual review can be organized by batch.
-
-The schema is:
-
-```sql
-CREATE TABLE shipment_batches (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  as_of_date TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'exported',
-  exported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  shipment_count INTEGER NOT NULL DEFAULT 0,
-  csv_filename TEXT,
-  notes TEXT
-);
-```
-
-### `shipment_import_batches`
-
-Stores one ShipStation CSV import run.
-
-This table gives the import flow an audit boundary similar to `shipment_batches` for exports. It stores the filename, total row count, auto-match count, manual-review count, flag count, size-warning count, dismissed rows, and import status.
-
-The schema is:
-
-```sql
-CREATE TABLE shipment_import_batches (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  filename TEXT NOT NULL,
-  imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  total_rows INTEGER NOT NULL DEFAULT 0,
-  auto_matched_rows INTEGER NOT NULL DEFAULT 0,
-  review_rows INTEGER NOT NULL DEFAULT 0,
-  flagged_rows INTEGER NOT NULL DEFAULT 0,
-  size_warning_rows INTEGER NOT NULL DEFAULT 0,
-  dismissed_rows INTEGER NOT NULL DEFAULT 0,
-  status TEXT NOT NULL DEFAULT 'imported'
-);
-```
-
 ### `shipment_import_rows`
 
 Stores one raw row from the imported ShipStation file, plus the matching result.
@@ -102,8 +59,9 @@ The schema is:
 
 ```sql
 CREATE TABLE shipment_import_rows (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  import_batch_id INTEGER NOT NULL REFERENCES shipment_import_batches(id),
+  id INTEGER PRIMARY KEY,
+  filename TEXT,
+  imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   shipment_id TEXT,
   carrier TEXT,
   raw_name TEXT NOT NULL,
@@ -121,6 +79,7 @@ CREATE TABLE shipment_import_rows (
   match_reason TEXT,
   matched_fields TEXT,
   conflicting_fields TEXT,
+  filter_sizes TEXT NOT NULL DEFAULT '[]',
   reviewed_at TEXT
 );
 ```
@@ -132,34 +91,27 @@ The important statuses are:
 - `manually_matched`: a human confirmed a tenant candidate;
 - `dismissed`: a human decided the row should not create/update a shipment.
 
-The `matched_fields` and `conflicting_fields` columns are JSON arrays. They are not separate tables because they are small explainability values used for UI display, not entities that need independent querying in this project.
+The `matched_fields`, `conflicting_fields`, and `filter_sizes` columns are JSON arrays. I chose this because these values are row-level explanations, not entities the app needs to query independently for v1.
 
-### `shipment_filter_sizes`
+`filter_sizes` stores the normalized filter-size results directly on the imported row. Each entry preserves the raw value and stores the normalized value, numeric dimensions, parse status, and parse error when applicable.
 
-Stores parsed filter-size tokens from `custom_field_1`.
+Example stored JSON:
 
-I chose a separate table instead of a JSON column because one imported row can contain multiple filter sizes, and each token can succeed or fail independently. A separate table makes it easy to query all size parse failures, display one flag per bad token, and later correct individual tokens without rewriting a JSON blob.
-
-The tradeoff is one more table and a slightly more complex import flow. I think that tradeoff is worth it because the README specifically says bad size data should not block the whole import; storing each token separately makes that follow-up process clear.
-
-The schema is:
-
-```sql
-CREATE TABLE shipment_filter_sizes (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  shipment_id INTEGER REFERENCES shipments(id),
-  import_row_id INTEGER NOT NULL REFERENCES shipment_import_rows(id),
-  raw_value TEXT NOT NULL,
-  normalized_value TEXT,
-  width_inches REAL,
-  height_inches REAL,
-  depth_inches REAL,
-  parse_status TEXT NOT NULL,
-  parse_error TEXT
-);
+```json
+[
+  {
+    "raw_value": "25x16-1/2x1",
+    "normalized_value": "25x16.5x1",
+    "width_inches": 25,
+    "height_inches": 16.5,
+    "depth_inches": 1,
+    "parse_status": "parsed",
+    "parse_error": null
+  }
+]
 ```
 
-The raw value is preserved exactly as ShipStation sent it. The normalized value and numeric fields are stored when parsing succeeds.
+This is less queryable than a separate `shipment_filter_sizes` table, but it is simpler and matches the current UI: filter sizes are always reviewed in the context of their imported CSV row.
 
 ### `data_quality_issues`
 
@@ -181,33 +133,25 @@ CREATE INDEX idx_shipments_property_date
 CREATE INDEX idx_shipments_status
   ON shipments(status);
 
-CREATE INDEX idx_shipments_batch_id
-  ON shipments(batch_id);
-
-CREATE INDEX idx_import_rows_batch_status
-  ON shipment_import_rows(import_batch_id, match_status);
+CREATE INDEX idx_import_rows_status
+  ON shipment_import_rows(match_status);
 
 CREATE INDEX idx_import_rows_tenant
   ON shipment_import_rows(matched_tenant_id);
-
-CREATE INDEX idx_filter_sizes_import_row
-  ON shipment_filter_sizes(import_row_id);
 ```
 
-`idx_properties_property_id` helps queries that group or inspect tenants by cooldown group. The most important eligibility index is `idx_shipments_property_date`, because cooldown checks need to find the latest shipment per property as of a selected date. The import indexes help the UI load review rows by batch/status and attach filter sizes back to their raw import rows.
+`idx_properties_property_id` helps queries that group or inspect tenants by cooldown group. The most important eligibility index is `idx_shipments_property_date`, because cooldown checks need to find the latest shipment per property as of a selected date. The import indexes help the UI load review rows by status and tenant.
 
 ## Why The Core Tables Are Separate
 
 I kept the core domain tables separate where the relationships are truly one-to-many and where separate state prevents real confusion:
 
-- one export batch has many shipments;
 - one tenant can have many shipments over time;
-- one import batch has many imported rows;
-- one imported row can have many parsed filter-size tokens.
+- one imported row can have one matching result and one row-level filter-size JSON payload.
 
 I did not keep `properties` and tenant assignment separate because the app only uses one current assignment per tenant. The combined `properties` table is less normalized, but easier to work with for this project. The design is normalized where it protects correctness, and pragmatic where extra tables would be unnecessary.
 
-The import design follows the same principle. `shipment_import_rows` is separate from `shipments` because an imported CSV row might not have a confirmed tenant yet. `shipment_filter_sizes` is separate from `shipment_import_rows` because the `custom_field_1` field can contain multiple sizes, and each size can have a different parse status.
+The import design follows the same principle. `shipment_import_rows` is separate from `shipments` because an imported CSV row might not have a confirmed tenant yet. I chose not to keep `shipment_filter_sizes` separate after simplification because the app displays and reviews size data only inside the import row context.
 
 I intentionally did not add a `shipment_import_candidates` table for v1. Candidate tenants are computed from current tenant data when the review UI loads. That keeps the database smaller and avoids stale candidate rows if tenant data is corrected. The tradeoff is that candidates are recomputed on demand, but the dataset is small and the matcher uses lookup maps to avoid scanning work that would matter at this scale.
 
@@ -235,23 +179,23 @@ All of these are recorded in `data_quality_issues` and exposed through `GET /api
 
 ## Data Cleanup Resolutions
 
-I kept the original`properties.json` unchanged and generated a new `properties.normalized.json`.
+I kept the original `properties.json` unchanged and generated a new `properties.normalized.json`.
 
 The duplicate Riverbend property is renamed to `prop-riverbend-annex` because the source name is Riverbend Annex and it has a different shipment interval, so it seems right to treat it as a separate entity.
 
 If a tenant appears in two property groups, first assignment wins and the duplicate is removed.
 
-Tenants missing from `properties.json` are assigned to one shared property group:
+Tenants missing from `properties.json` are assigned deterministic address-based fallback properties with a 90-day interval.
 
 ```text
-id: missing-property
-name: Missing Property
+id: fallback-{normalized-address}
+name: Fallback: {address1}
 shipment_interval_days: 90
 ```
 
-Felt that it made most sense that all the missing property tenants were group under one category, where a cooldown of 90 was chosen because it was most commonly used.
+I considered grouping every unassigned tenant into one shared `missing-property` group, but that produced incorrect operational behavior: one historical shipment for any missing-property tenant put every other missing-property tenant on cooldown. Since the source file does not tell me that those tenants share a building, using their normalized address as a fallback property is safer. It preserves property-level cooldown behavior without inventing a relationship between unrelated tenants. The tradeoff is more fallback property ids, but the eligibility result stays correct: `34` eligible tenants on `2026-04-24`, not `3`.
 
-For duplicate tenant identities, I preserve both original tenant rows but exclude the non-canonical duplicate from operational eligibility/export. For Casey Morgan, the lower tenant id is the canonical row. This keeps the raw fixture auditable while making the operational data behave as if duplicates were removed.
+For duplicate tenant identities, startup normalization removes the non-canonical duplicate from the operational database. For Casey Morgan, tenant `900001` is kept and tenant `900002` is deleted along with related enrollments, historical shipments, import rows, and shipment rows. This means reset does not bring the duplicate back. The tradeoff is that the raw local SQLite database is no longer a perfect copy of the fixture after startup, but the app begins every run from cleaned operational data.
 
 ## Rider Normalization
 
@@ -411,16 +355,13 @@ Cooldown-counting statuses are:
 
 ## Demo Reset
 
-Because this is a work-trial/demo app, I added a reset action at `POST /api/reset-demo-state` and a Reset Demo button on the shipment batch page.
+Because this is a work-trial/demo app, I added a reset action at `POST /api/reset-demo-state` and a Reset Demo button on the shipment page.
 
 The reset deletes rows created by the demo workflows:
 
 - `shipments` where `source = 'export'`;
 - `shipments` where `source = 'shipstation_import'`;
-- all `shipment_batches`;
-- all `shipment_import_batches`;
-- all `shipment_import_rows`;
-- all `shipment_filter_sizes`.
+- all `shipment_import_rows`.
 
 It also restores normalized historical shipments back to `status = 'historical'` if an import run temporarily updated an existing historical tracking number to `shipped`.
 
@@ -438,31 +379,29 @@ This lets the reviewer run the `2026-04-24` export flow, observe that ordered sh
 
 The first screen does not pre-render eligible tenants or excluded tenants. Instead, the operator chooses an `asOf` date and clicks `Ship Batch`.
 
-`Ship Batch` runs the eligibility engine, creates one `shipment_batches` row, creates `ordered` shipment rows, and returns the persisted batch. The UI then shows a separate `Download` button for the generated CSV.
+`Ship Batch` runs the eligibility engine, creates `ordered` shipment rows, and returns the generated CSV to the browser. The UI then shows a separate `Download` button for that CSV.
 
 I removed the analytics-style counts and the excluded-tenant table from the main shipping UI because they made the page feel more like a dashboard than a shipping workflow. The underlying API still exposes eligibility detail for debugging and future screens.
 
-The Import tab follows the same operational style. It does not show a large dashboard by default. The operator clicks `Import ShipStation File`, then the app shows summary counts and a single tabbed results area:
+The Import tab follows the same operational style. It does not show a large dashboard by default. The operator chooses a CSV file, clicks `Import Selected CSV`, then the app shows summary counts and a single tabbed results area:
 
 - `Matched Rows`: automatically matched import rows with match evidence;
 - `Manual Review`: rows that need a human tenant decision;
 - `Flags`: missing, ambiguous, or unusable data.
 
-I removed the separate `Size warnings` indicator from the summary because those warnings are already represented as flag rows. The count still exists in the import batch record for auditing, but the UI avoids duplicating the same concern in two places.
+I removed the separate `Size warnings` indicator from the UI and database. Size issues are represented as flag rows derived from `shipment_import_rows.filter_sizes`.
 
 ## API Surface
 
 The main API endpoints are:
 
 - `GET /api/eligibility?asOf=YYYY-MM-DD`: returns eligibility detail for a selected date;
-- `POST /api/exports`: runs eligibility, creates an export batch, and creates `ordered` shipments;
-- `GET /api/exports`: lists export batches;
-- `GET /api/exports/:id.csv`: downloads the persisted export CSV;
+- `POST /api/exports`: runs eligibility, creates `ordered` shipments, and returns the CSV;
 - `GET /api/shipments`: lists shipment/order rows;
 - `GET /api/data-quality`: lists recorded fixture issues and resolutions;
 - `POST /api/reset-demo-state`: clears demo-created export/import state;
-- `POST /api/imports/shipstation`: imports the provided ShipStation CSV file;
-- `GET /api/imports`: returns the latest import batch with matched rows, review rows, and flags;
+- `POST /api/imports/shipstation`: imports CSV text posted by the React file picker;
+- `GET /api/imports`: returns the current import rows with matched rows, review rows, and flags;
 - `GET /api/import-rows/:id/candidates`: recomputes candidate tenants for one review row;
 - `POST /api/import-rows/:id/confirm`: manually confirms a candidate tenant;
 - `POST /api/import-rows/:id/dismiss`: dismisses an unresolved import row.
@@ -475,7 +414,6 @@ The export includes:
 
 - `tenant_id`: stable internal reference for debugging and import reconciliation;
 - `property_id`: shows the cooldown group used;
-- `batch_id`: ties the row to one export run;
 - `first_name`, `last_name`: recipient name split into separate fields so downstream systems can choose how to format the label;
 - `address1`, `address2`, `city`, `state`, `zip`: required delivery address fields;
 - `shipment_date`: date the order was generated;
@@ -487,7 +425,18 @@ ZIP codes are exported exactly as stored in SQLite. For example, tenant `175236`
 
 ## ShipStation Import And Manual Review
 
-The Import tab handles the fourth requirement. It imports the provided `shipstation-export.csv`, stores every raw row, attempts tenant matching, parses filter sizes, updates or creates shipment records, and exposes review/flag queues.
+The Import tab handles the fourth requirement. It imports a selected ShipStation-style CSV file, stores every raw row, attempts tenant matching, parses filter sizes, updates or creates shipment records, and exposes review/flag queues.
+
+The app still has the original `shipstation-export.csv` fixture, but the UI no longer hardcodes that file. I also added `fixtures/matching-demo-shipstation.csv` as a smaller import demo that intentionally exercises more review behavior:
+
+- exact full-name/address matches;
+- address and unit conflicts that require manual review;
+- missing required address fields;
+- blank filter sizes;
+- ambiguous range-like sizes;
+- unsupported semantic text;
+- malformed/missing dimensions;
+- valid mixed-fraction and word-based size normalization.
 
 The UI exposes three result views as tabs inside one Import Results section:
 
@@ -495,7 +444,7 @@ The UI exposes three result views as tabs inside one Import Results section:
 - manual review queue: rows that need a human tenant decision;
 - flags: missing, ambiguous, or unusable data that needs follow-up.
 
-I removed the separate `Size warnings` summary indicator from the UI. Size warnings are still stored through `shipment_filter_sizes.parse_status` and `parse_error`, but they are surfaced in the Flags tab. Showing both a size-warning count and a flags count made the import summary feel duplicative.
+I removed the separate `Size warnings` summary indicator from the UI and database. Filter-size parse problems are stored in the import row's `filter_sizes` JSON and surfaced in the Flags tab.
 
 ### Import Flow
 
@@ -503,17 +452,16 @@ The import logic lives in `src/server/services/importService.js`.
 
 The flow is:
 
-1. Read `shipstation-export.csv` with a CSV parser.
-2. Create one `shipment_import_batches` row.
-3. Build tenant matching indexes from the current `tenants` table.
+1. Read the selected CSV file in React and post its filename plus CSV text to the API.
+2. Clear the previous `shipment_import_rows` so the UI shows only the current import file.
+3. Build tenant matching indexes from the current cleaned `tenants` table.
 4. For each CSV row, normalize the row into the fields the matcher expects.
 5. Check required fields: name, address1, city, state, ZIP, shipment id, and ship date.
-6. Parse `custom_field_1` into one or more filter-size rows.
+6. Parse `custom_field_1` into normalized filter-size JSON.
 7. Score plausible tenant candidates.
 8. Auto-match only when the match is strong and unambiguous.
-9. Store the raw CSV row and match result in `shipment_import_rows`.
-10. Store every parsed or failed filter-size token in `shipment_filter_sizes`.
-11. Return the batch detail for the React UI.
+9. Store the raw CSV row, match result, and filter-size JSON in `shipment_import_rows`.
+10. Return the current import detail for the React UI.
 
 The import is intentionally tolerant. A bad row or bad filter-size value does not fail the whole file. The row is stored, the issue is recorded, and the UI surfaces it in `Manual Review` or `Flags`.
 
@@ -525,17 +473,15 @@ When a row auto-matches or is manually confirmed, the app creates or updates a s
 
 That three-step behavior lets the import work both as a follow-up to exports created by this app and as a backfill/import of shipments that already exist in the partner file.
 
-### Import Tables
+### Import Table
 
-I added three import-specific tables:
+I use one import-specific table:
 
-- `shipment_import_batches`: one row per imported file, with summary counts.
-- `shipment_import_rows`: one row per raw ShipStation CSV row.
-- `shipment_filter_sizes`: one row per parsed size token.
+- `shipment_import_rows`: one row per raw ShipStation CSV row, including matching fields and normalized filter-size JSON.
 
 I did not add a `shipment_import_candidates` table. Candidate tenant options are derived from current tenant data and recomputed when the review UI opens. This keeps the schema smaller.
 
-I did keep `shipment_filter_sizes` as a separate table instead of a JSON column because one imported shipment row may contain multiple filter sizes, and each token can have a separate parse result. This makes parse failures easier to query, display, and correct. The tradeoff is one additional table and a slightly more complex import flow.
+I also removed the separate `shipment_filter_sizes` table. Storing normalized filter-size results on the import row is less queryable, but it removes another table and fits the UI: filter-size issues are reviewed together with the raw CSV row they came from.
 
 ### Matching Confidence
 
@@ -758,7 +704,7 @@ If an imported tracking id already exists on a normalized historical shipment, t
 
 ### Filter Size Parsing
 
-Filter sizes are fulfillment/audit data, not eligibility data. They describe what physical filter dimensions were shipped.
+Filters describe what physical filter dimensions were shipped.
 
 The app stores:
 
@@ -831,26 +777,24 @@ parse_error: "Missing required dimension"
 follow-up: Check the source order for the missing dimension.
 ```
 
-Flags are not stored in a separate table. They are derived from `shipment_import_rows` and `shipment_filter_sizes`, which keeps the schema smaller while preserving the data needed for review.
+Flags are not stored in a separate table. They are derived from `shipment_import_rows.match_status`, `shipment_import_rows.match_reason`, and the `filter_sizes` JSON stored on the same row.
 
 ### Import Reset
 
 Reset Demo clears import-created state too:
 
-- import batches;
 - import rows;
-- filter-size rows;
 - import-created shipments;
 - export-created shipments.
 
-It keeps raw fixtures, normalized properties, data-quality issues, and normalized historical shipments.
+It keeps the cleaned source tables, normalized properties, data-quality issues, and normalized historical shipments. Duplicate tenant rows removed at startup are not restored by reset.
 
 ## Known Limitations And Future Work
 
-The import currently uses the provided `shipstation-export.csv` fixture rather than a user-uploaded file picker. A production version would add upload validation, file-size limits, and probably background processing for large imports.
+The import now supports choosing a CSV file in the browser. A production version would add stronger upload validation, larger file-size handling, and probably background processing for large imports.
 
 Manual review currently supports confirm and dismiss. A fuller operations tool would also let the reviewer edit parsed filter sizes, correct raw address fields, and leave notes explaining why a row was dismissed.
 
 The candidate matcher is deterministic and explainable, but it is still rule-based. For a larger dataset, I would add stronger address normalization, unit parsing, phonetic or fuzzy name matching, and more automated tests around false positives.
 
-The app stores import flags as derived UI data from `shipment_import_rows` and `shipment_filter_sizes` instead of a separate `flags` table. That is a good v1 choice because it avoids duplicating issue state. If flags later need assignment, comments, due dates, or resolution history, I would add a real `review_flags` table.
+The app stores import flags as derived UI data from `shipment_import_rows` instead of a separate `flags` table. That is a good v1 choice because it avoids duplicating issue state. If flags later need assignment, comments, due dates, or resolution history, I would add a real `review_flags` table.

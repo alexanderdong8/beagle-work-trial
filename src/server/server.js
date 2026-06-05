@@ -13,12 +13,11 @@ const path = require("path");
 const { openDb, repoRoot } = require("./db");
 const { migrate } = require("./migrate");
 const { DEFAULT_AS_OF_DATE, getEligibility } = require("./services/eligibilityService");
-const { createExportBatch, getBatchCsv, listBatches } = require("./services/exportService");
+const { createExportBatch } = require("./services/exportService");
 const {
   confirmImportRow,
   dismissImportRow,
   getCandidatesForImportRow,
-  getImportBatchDetail,
   importShipStationFile,
   latestImportBatch,
 } = require("./services/importService");
@@ -46,7 +45,7 @@ function createApp() {
   migrate();
 
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: "5mb" }));
   app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", "http://127.0.0.1:5173");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -76,30 +75,9 @@ function createApp() {
       const result = createExportBatch(db, { asOf: req.body.asOf || DEFAULT_AS_OF_DATE });
       res.status(201).json({
         batch: result.batch,
+        csv: result.csv,
         row_count: result.rows.length,
       });
-    }),
-  );
-
-  app.get(
-    "/api/exports",
-    withDb((req, res, db) => {
-      res.json({ batches: listBatches(db) });
-    }),
-  );
-
-  app.get(
-    "/api/exports/:id.csv",
-    withDb((req, res, db) => {
-      const result = getBatchCsv(db, Number(req.params.id));
-      if (!result) {
-        res.status(404).json({ error: "Export batch not found." });
-        return;
-      }
-
-      res.setHeader("Content-Type", "text/csv; charset=utf-8");
-      res.setHeader("Content-Disposition", `attachment; filename="${result.batch.csv_filename}"`);
-      res.send(result.csv);
     }),
   );
 
@@ -153,7 +131,10 @@ function createApp() {
   app.post(
     "/api/imports/shipstation",
     withDb((req, res, db) => {
-      res.status(201).json(importShipStationFile(db));
+      res.status(201).json(importShipStationFile(db, {
+        csvText: req.body.csvText,
+        filename: req.body.filename,
+      }));
     }),
   );
 
@@ -161,18 +142,6 @@ function createApp() {
     "/api/imports",
     withDb((req, res, db) => {
       res.json(latestImportBatch(db) || { batch: null, matchedRows: [], reviewRows: [], flags: [] });
-    }),
-  );
-
-  app.get(
-    "/api/imports/:id/review-rows",
-    withDb((req, res, db) => {
-      const detail = getImportBatchDetail(db, Number(req.params.id));
-      if (!detail) {
-        res.status(404).json({ error: "Import batch not found." });
-        return;
-      }
-      res.json({ reviewRows: detail.reviewRows });
     }),
   );
 

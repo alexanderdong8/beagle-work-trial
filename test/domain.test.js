@@ -24,7 +24,7 @@ test("calculates date-only day differences", () => {
   assert.equal(daysBetween("2026-04-24", "2026-04-10"), -14);
 });
 
-test("normalizes duplicate property ids, duplicate tenant assignments, and missing-property tenants", () => {
+test("normalizes duplicate property ids, duplicate tenant assignments, and fallback tenants", () => {
   const rawProperties = [
     {
       id: "prop-riverbend",
@@ -79,17 +79,16 @@ test("normalizes duplicate property ids, duplicate tenant assignments, and missi
   assert.equal(propertyIds.includes("prop-riverbend-annex"), true);
   assert.equal(result.tenantProperties.find((row) => row.tenant_id === 2).property_id, "prop-riverbend");
   assert.equal(result.unassignedTenantIds.includes(3), true);
-  const missingProperty = result.normalizedProperties.find((property) => property.id === "missing-property");
-  assert.equal(missingProperty.shipment_interval_days, 90);
-  assert.deepEqual(missingProperty.tenant_ids, [3]);
+  const fallbackProperty = result.normalizedProperties.find((property) => property.id.startsWith("fallback-3-main"));
+  assert.equal(fallbackProperty.shipment_interval_days, 90);
+  assert.deepEqual(fallbackProperty.tenant_ids, [3]);
 });
 
 test("exports split names and raw text ZIP codes", () => {
   const csv = toCsv([
     {
       tenant_id: 175236,
-      property_id: "missing-property",
-      batch_id: 1,
+      property_id: "fallback-7781-wilson-mountains",
       first_name: "Kizzy",
       last_name: "O'Keefe",
       address1: "7781 Wilson Mountains",
@@ -105,7 +104,7 @@ test("exports split names and raw text ZIP codes", () => {
   const [header, row] = csv.trim().split("\n");
   assert.equal(
     header,
-    "tenant_id,property_id,batch_id,first_name,last_name,address1,address2,city,state,zip,shipment_date,minimum_next_shipment_date",
+    "tenant_id,property_id,first_name,last_name,address1,address2,city,state,zip,shipment_date,minimum_next_shipment_date",
   );
   assert.match(row, /,Kizzy,O'Keefe,/);
   assert.match(row, /,06323,/);

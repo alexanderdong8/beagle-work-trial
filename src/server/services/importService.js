@@ -3,9 +3,9 @@
 /**
  * ShipStation import orchestration.
  *
- * This service preserves every raw CSV row, auto-matches only high-confidence
- * tenant matches, stores filter-size parse results, and exposes review/flag data
- * for the Import UI.
+ * The simplified schema stores one row per imported CSV line in
+ * shipment_import_rows. Filter sizes are normalized into JSON on that same row
+ * instead of being split into a separate table.
  */
 
 const fs = require("fs");
@@ -17,22 +17,6 @@ const { parseFilterSizes } = require("./filterSizeService");
 const { buildTenantIndexes, findMatch } = require("./importMatchingService");
 
 const SHIPSTATION_FILE = path.join(repoRoot, "shipstation-export.csv");
-
-function getDuplicateTenantIds(db) {
-  return new Set(
-    db
-      .prepare(
-        `
-          SELECT related_tenant_id
-          FROM data_quality_issues
-          WHERE issue_type = 'duplicate_tenant_identity'
-            AND related_tenant_id IS NOT NULL
-        `,
-      )
-      .pluck()
-      .all(),
-  );
-}
 
 function requiredRowIssue(row) {
   const missing = ["name", "address1", "city", "state", "zip", "shipment_id", "ship_date"].filter(
@@ -105,10 +89,10 @@ function createOrUpdateShipment(db, importRow, tenantId) {
     .prepare(
       `
         INSERT INTO shipments
-          (tenant_id, property_id, batch_id, shipment_date, minimum_next_shipment_date,
+          (tenant_id, property_id, shipment_date, minimum_next_shipment_date,
            tracking_number, status, source)
         VALUES
-          (@tenant_id, @property_id, NULL, @shipment_date, @minimum_next_shipment_date,
+          (@tenant_id, @property_id, @shipment_date, @minimum_next_shipment_date,
            @tracking_number, 'shipped', 'shipstation_import')
       `,
     )
@@ -123,75 +107,41 @@ function createOrUpdateShipment(db, importRow, tenantId) {
   return info.lastInsertRowid;
 }
 
-function insertFilterSizes(db, importRowId, shipmentId, sizeResults) {
-  const insert = db.prepare(
-    `
-      INSERT INTO shipment_filter_sizes
-        (shipment_id, import_row_id, raw_value, normalized_value, width_inches,
-         height_inches, depth_inches, parse_status, parse_error)
-      VALUES
-        (@shipment_id, @import_row_id, @raw_value, @normalized_value, @width_inches,
-         @height_inches, @depth_inches, @parse_status, @parse_error)
-    `,
-  );
+function importShipStationFile(db, options = {}) {
+  const filePath = typeof options === "string" ? options : options.filePath || SHIPSTATION_FILE;
+  const csvText = typeof options === "object" && options.csvText
+    ? options.csvText
+    : fs.readFileSync(filePath, "utf8");
+  const filename = typeof options === "object" && options.filename
+    ? path.basename(options.filename)
+    : path.basename(filePath);
 
-  for (const size of sizeResults) {
-    insert.run({
-      shipment_id: shipmentId,
-      import_row_id: importRowId,
-      raw_value: size.raw_value,
-      normalized_value: size.normalized_value,
-      width_inches: size.width_inches,
-      height_inches: size.height_inches,
-      depth_inches: size.depth_inches,
-      parse_status: size.parse_status,
-      parse_error: size.parse_error,
-    });
-  }
-}
-
-function importShipStationFile(db, filePath = SHIPSTATION_FILE) {
-  const rows = parse(fs.readFileSync(filePath, "utf8"), {
+  const rows = parse(csvText, {
     columns: true,
     skip_empty_lines: true,
     trim: true,
   });
   const tenants = db.prepare("SELECT * FROM tenants ORDER BY id").all();
-  const indexes = buildTenantIndexes(tenants, getDuplicateTenantIds(db));
+  const indexes = buildTenantIndexes(tenants);
+  const importedAt = new Date().toISOString();
 
   const tx = db.transaction(() => {
-    const batchInfo = db
-      .prepare(
-        `
-          INSERT INTO shipment_import_batches (filename, total_rows)
-          VALUES (@filename, @total_rows)
-        `,
-      )
-      .run({
-        filename: path.basename(filePath),
-        total_rows: rows.length,
-      });
+    db.prepare("DELETE FROM shipment_import_rows").run();
 
-    const importBatchId = batchInfo.lastInsertRowid;
     const insertRow = db.prepare(
       `
         INSERT INTO shipment_import_rows
-          (import_batch_id, shipment_id, carrier, raw_name, address1, address2,
+          (filename, imported_at, shipment_id, carrier, raw_name, address1, address2,
            city, state, zip, ship_date, custom_field_1, matched_tenant_id,
            matched_shipment_id, match_status, match_score, match_reason,
-           matched_fields, conflicting_fields)
+           matched_fields, conflicting_fields, filter_sizes)
         VALUES
-          (@import_batch_id, @shipment_id, @carrier, @raw_name, @address1, @address2,
+          (@filename, @imported_at, @shipment_id, @carrier, @raw_name, @address1, @address2,
            @city, @state, @zip, @ship_date, @custom_field_1, @matched_tenant_id,
            @matched_shipment_id, @match_status, @match_score, @match_reason,
-           @matched_fields, @conflicting_fields)
+           @matched_fields, @conflicting_fields, @filter_sizes)
       `,
     );
-
-    let autoMatchedRows = 0;
-    let reviewRows = 0;
-    let flaggedRows = 0;
-    let sizeWarningRows = 0;
 
     for (const rawRow of rows) {
       const row = {
@@ -208,9 +158,8 @@ function importShipStationFile(db, filePath = SHIPSTATION_FILE) {
       };
       const requiredIssue = requiredRowIssue(rawRow);
       const sizeResults = parseFilterSizes(row.custom_field_1);
-      const hasSizeWarning = sizeResults.some((size) => size.parse_status !== "parsed");
 
-      let match = requiredIssue
+      const match = requiredIssue
         ? {
             matchedTenant: null,
             matchStatus: "needs_review",
@@ -224,16 +173,11 @@ function importShipStationFile(db, filePath = SHIPSTATION_FILE) {
       let shipmentId = null;
       if (match.matchedTenant) {
         shipmentId = createOrUpdateShipment(db, row, match.matchedTenant.id);
-        autoMatchedRows += 1;
-      } else {
-        reviewRows += 1;
       }
 
-      if (match.matchStatus === "needs_review" || hasSizeWarning) flaggedRows += 1;
-      if (hasSizeWarning) sizeWarningRows += 1;
-
-      const rowInfo = insertRow.run({
-        import_batch_id: importBatchId,
+      insertRow.run({
+        filename,
+        imported_at: importedAt,
         shipment_id: row.shipment_id,
         carrier: row.carrier,
         raw_name: row.name,
@@ -251,32 +195,13 @@ function importShipStationFile(db, filePath = SHIPSTATION_FILE) {
         match_reason: requiredIssue || match.matchReason,
         matched_fields: JSON.stringify(match.matchedFields),
         conflicting_fields: JSON.stringify(match.conflictingFields),
+        filter_sizes: JSON.stringify(sizeResults),
       });
-
-      insertFilterSizes(db, rowInfo.lastInsertRowid, shipmentId, sizeResults);
     }
-
-    db.prepare(
-      `
-        UPDATE shipment_import_batches
-        SET auto_matched_rows = @auto_matched_rows,
-            review_rows = @review_rows,
-            flagged_rows = @flagged_rows,
-            size_warning_rows = @size_warning_rows
-        WHERE id = @id
-      `,
-    ).run({
-      id: importBatchId,
-      auto_matched_rows: autoMatchedRows,
-      review_rows: reviewRows,
-      flagged_rows: flaggedRows,
-      size_warning_rows: sizeWarningRows,
-    });
-
-    return importBatchId;
   });
 
-  return getImportBatchDetail(db, tx());
+  tx();
+  return latestImportBatch(db);
 }
 
 function parseJsonArray(value) {
@@ -287,11 +212,17 @@ function parseJsonArray(value) {
   }
 }
 
-function getImportBatchDetail(db, batchId) {
-  const batch = db.prepare("SELECT * FROM shipment_import_batches WHERE id = ?").get(batchId);
-  if (!batch) return null;
+function decorateRows(rows) {
+  return rows.map((row) => ({
+    ...row,
+    matched_fields: parseJsonArray(row.matched_fields),
+    conflicting_fields: parseJsonArray(row.conflicting_fields),
+    filter_sizes: parseJsonArray(row.filter_sizes),
+  }));
+}
 
-  const rows = db
+function getCurrentImportRows(db) {
+  return db
     .prepare(
       `
         SELECT ir.*, t.first_name, t.last_name, t.address1 AS tenant_address1,
@@ -301,50 +232,32 @@ function getImportBatchDetail(db, batchId) {
         FROM shipment_import_rows ir
         LEFT JOIN tenants t ON t.id = ir.matched_tenant_id
         LEFT JOIN shipments s ON s.id = ir.matched_shipment_id
-        WHERE ir.import_batch_id = ?
         ORDER BY ir.id
       `,
     )
-    .all(batchId);
-
-  const sizeRows = db
-    .prepare(
-      `
-        SELECT *
-        FROM shipment_filter_sizes
-        WHERE import_row_id IN (
-          SELECT id FROM shipment_import_rows WHERE import_batch_id = ?
-        )
-        ORDER BY id
-      `,
-    )
-    .all(batchId);
-  const sizesByRow = new Map();
-  for (const size of sizeRows) {
-    if (!sizesByRow.has(size.import_row_id)) sizesByRow.set(size.import_row_id, []);
-    sizesByRow.get(size.import_row_id).push(size);
-  }
-
-  const decoratedRows = rows.map((row) => ({
-    ...row,
-    matched_fields: parseJsonArray(row.matched_fields),
-    conflicting_fields: parseJsonArray(row.conflicting_fields),
-    filter_sizes: sizesByRow.get(row.id) || [],
-  }));
-
-  return {
-    batch,
-    matchedRows: decoratedRows.filter((row) => ["auto_matched", "manually_matched"].includes(row.match_status)),
-    reviewRows: decoratedRows.filter((row) => row.match_status === "needs_review"),
-    flags: buildFlags(decoratedRows),
-  };
+    .all();
 }
 
 function latestImportBatch(db) {
-  const batch = db
-    .prepare("SELECT id FROM shipment_import_batches ORDER BY imported_at DESC, id DESC LIMIT 1")
-    .get();
-  return batch ? getImportBatchDetail(db, batch.id) : null;
+  const rows = decorateRows(getCurrentImportRows(db));
+  if (!rows.length) return null;
+
+  const batch = {
+    filename: rows[0].filename,
+    imported_at: rows[0].imported_at,
+    total_rows: rows.length,
+    auto_matched_rows: rows.filter((row) => row.match_status === "auto_matched").length,
+    review_rows: rows.filter((row) => row.match_status === "needs_review").length,
+    flagged_rows: buildFlags(rows).length,
+    dismissed_rows: rows.filter((row) => row.match_status === "dismissed").length,
+  };
+
+  return {
+    batch,
+    matchedRows: rows.filter((row) => ["auto_matched", "manually_matched"].includes(row.match_status)),
+    reviewRows: rows.filter((row) => row.match_status === "needs_review"),
+    flags: buildFlags(rows),
+  };
 }
 
 function buildFlags(rows) {
@@ -398,7 +311,7 @@ function getCandidatesForImportRow(db, importRowId) {
   const row = db.prepare("SELECT * FROM shipment_import_rows WHERE id = ?").get(importRowId);
   if (!row) return null;
   const tenants = db.prepare("SELECT * FROM tenants ORDER BY id").all();
-  const indexes = buildTenantIndexes(tenants, getDuplicateTenantIds(db));
+  const indexes = buildTenantIndexes(tenants);
   const match = findMatch(
     {
       name: row.raw_name,
@@ -435,7 +348,6 @@ function confirmImportRow(db, importRowId, tenantId) {
       WHERE id = @id
     `,
   ).run({ id: importRowId, tenant_id: tenantId, shipment_id: shipmentId });
-  db.prepare("UPDATE shipment_filter_sizes SET shipment_id = ? WHERE import_row_id = ?").run(shipmentId, importRowId);
   return db.prepare("SELECT * FROM shipment_import_rows WHERE id = ?").get(importRowId);
 }
 
@@ -455,7 +367,6 @@ module.exports = {
   confirmImportRow,
   dismissImportRow,
   getCandidatesForImportRow,
-  getImportBatchDetail,
   importShipStationFile,
   latestImportBatch,
 };

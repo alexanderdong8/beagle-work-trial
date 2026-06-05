@@ -121,6 +121,8 @@ function formatTenantRow(tenant, property, extra = {}) {
   // Keep API responses consistent for eligible and excluded tenants.
   return {
     tenant_id: tenant.id,
+    first_name: tenant.first_name,
+    last_name: tenant.last_name,
     recipient_name: tenantFullName(tenant),
     address1: tenant.address1,
     address2: tenant.address2,

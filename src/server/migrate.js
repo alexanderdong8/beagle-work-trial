@@ -33,7 +33,7 @@ function createSchema(db) {
     );
 
     CREATE TABLE IF NOT EXISTS data_quality_issues (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id INTEGER PRIMARY KEY,
       issue_type TEXT NOT NULL,
       tenant_id INTEGER,
       related_tenant_id INTEGER,
@@ -44,21 +44,10 @@ function createSchema(db) {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
-    CREATE TABLE IF NOT EXISTS shipment_batches (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      as_of_date TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'exported',
-      exported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      shipment_count INTEGER NOT NULL DEFAULT 0,
-      csv_filename TEXT,
-      notes TEXT
-    );
-
     CREATE TABLE IF NOT EXISTS shipments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id INTEGER PRIMARY KEY,
       tenant_id INTEGER NOT NULL REFERENCES tenants(id),
       property_id TEXT NOT NULL,
-      batch_id INTEGER REFERENCES shipment_batches(id),
       shipment_date TEXT NOT NULL,
       minimum_next_shipment_date TEXT NOT NULL,
       tracking_number TEXT UNIQUE,
@@ -67,22 +56,10 @@ function createSchema(db) {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
-    CREATE TABLE IF NOT EXISTS shipment_import_batches (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      filename TEXT NOT NULL,
-      imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      total_rows INTEGER NOT NULL DEFAULT 0,
-      auto_matched_rows INTEGER NOT NULL DEFAULT 0,
-      review_rows INTEGER NOT NULL DEFAULT 0,
-      flagged_rows INTEGER NOT NULL DEFAULT 0,
-      size_warning_rows INTEGER NOT NULL DEFAULT 0,
-      dismissed_rows INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'imported'
-    );
-
     CREATE TABLE IF NOT EXISTS shipment_import_rows (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      import_batch_id INTEGER NOT NULL REFERENCES shipment_import_batches(id),
+      id INTEGER PRIMARY KEY,
+      filename TEXT,
+      imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       shipment_id TEXT,
       carrier TEXT,
       raw_name TEXT NOT NULL,
@@ -100,34 +77,18 @@ function createSchema(db) {
       match_reason TEXT,
       matched_fields TEXT,
       conflicting_fields TEXT,
+      filter_sizes TEXT NOT NULL DEFAULT '[]',
       reviewed_at TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS shipment_filter_sizes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      shipment_id INTEGER REFERENCES shipments(id),
-      import_row_id INTEGER NOT NULL REFERENCES shipment_import_rows(id),
-      raw_value TEXT NOT NULL,
-      normalized_value TEXT,
-      width_inches REAL,
-      height_inches REAL,
-      depth_inches REAL,
-      parse_status TEXT NOT NULL,
-      parse_error TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_shipments_property_date
       ON shipments(property_id, shipment_date);
     CREATE INDEX IF NOT EXISTS idx_shipments_status
       ON shipments(status);
-    CREATE INDEX IF NOT EXISTS idx_shipments_batch_id
-      ON shipments(batch_id);
-    CREATE INDEX IF NOT EXISTS idx_import_rows_batch_status
-      ON shipment_import_rows(import_batch_id, match_status);
+    CREATE INDEX IF NOT EXISTS idx_import_rows_status
+      ON shipment_import_rows(match_status);
     CREATE INDEX IF NOT EXISTS idx_import_rows_tenant
       ON shipment_import_rows(matched_tenant_id);
-    CREATE INDEX IF NOT EXISTS idx_filter_sizes_import_row
-      ON shipment_filter_sizes(import_row_id);
   `);
 
   const enrollmentColumns = new Set(
@@ -139,6 +100,41 @@ function createSchema(db) {
 
   if (!enrollmentColumns.has("normalized_rider_labels")) {
     db.prepare("ALTER TABLE enrollments ADD COLUMN normalized_rider_labels TEXT").run();
+  }
+
+  const hasDataQualitySequence =
+    db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_sequence'").get().count &&
+    db.prepare("SELECT COUNT(*) AS count FROM sqlite_sequence WHERE name = 'data_quality_issues'").get().count;
+
+  if (hasDataQualitySequence) {
+    db.pragma("foreign_keys = OFF");
+    try {
+      db.exec(`
+        CREATE TABLE data_quality_issues_new (
+          id INTEGER PRIMARY KEY,
+          issue_type TEXT NOT NULL,
+          tenant_id INTEGER,
+          related_tenant_id INTEGER,
+          property_id TEXT,
+          related_property_id TEXT,
+          details TEXT NOT NULL,
+          resolution TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT INTO data_quality_issues_new
+          (id, issue_type, tenant_id, related_tenant_id, property_id, related_property_id,
+           details, resolution, created_at)
+        SELECT id, issue_type, tenant_id, related_tenant_id, property_id, related_property_id,
+               details, resolution, created_at
+        FROM data_quality_issues;
+
+        DROP TABLE data_quality_issues;
+        ALTER TABLE data_quality_issues_new RENAME TO data_quality_issues;
+      `);
+    } finally {
+      db.pragma("foreign_keys = ON");
+    }
   }
 
   const propertyColumns = new Set(
@@ -177,12 +173,18 @@ function createSchema(db) {
     }
   }
 
+  const shipmentColumns = new Set(
+    db
+      .prepare("PRAGMA table_info(shipments)")
+      .all()
+      .map((column) => column.name),
+  );
   const shipmentReferencesProperties = db
     .prepare("PRAGMA foreign_key_list(shipments)")
     .all()
     .some((foreignKey) => foreignKey.table === "properties");
 
-  if (shipmentReferencesProperties) {
+  if (shipmentReferencesProperties || shipmentColumns.has("batch_id")) {
     db.pragma("foreign_keys = OFF");
     try {
       db.exec(`
@@ -191,10 +193,9 @@ function createSchema(db) {
         DROP INDEX IF EXISTS idx_shipments_batch_id;
 
         CREATE TABLE shipments_new (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          id INTEGER PRIMARY KEY,
           tenant_id INTEGER NOT NULL REFERENCES tenants(id),
           property_id TEXT NOT NULL,
-          batch_id INTEGER REFERENCES shipment_batches(id),
           shipment_date TEXT NOT NULL,
           minimum_next_shipment_date TEXT NOT NULL,
           tracking_number TEXT UNIQUE,
@@ -204,9 +205,9 @@ function createSchema(db) {
         );
 
         INSERT INTO shipments_new
-          (id, tenant_id, property_id, batch_id, shipment_date, minimum_next_shipment_date,
+          (id, tenant_id, property_id, shipment_date, minimum_next_shipment_date,
            tracking_number, status, source, created_at)
-        SELECT id, tenant_id, property_id, batch_id, shipment_date, minimum_next_shipment_date,
+        SELECT id, tenant_id, property_id, shipment_date, minimum_next_shipment_date,
                tracking_number, status, source, created_at
         FROM shipments;
 
@@ -218,6 +219,79 @@ function createSchema(db) {
     }
   }
 
+  const importRowColumns = new Set(
+    db
+      .prepare("PRAGMA table_info(shipment_import_rows)")
+      .all()
+      .map((column) => column.name),
+  );
+  if (
+    importRowColumns.has("import_batch_id") ||
+    !importRowColumns.has("filter_sizes") ||
+    db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'shipment_filter_sizes'").get().count ||
+    db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'shipment_import_batches'").get().count
+  ) {
+    db.pragma("foreign_keys = OFF");
+    try {
+      db.exec(`
+        DROP INDEX IF EXISTS idx_import_rows_batch_status;
+        DROP INDEX IF EXISTS idx_import_rows_status;
+        DROP INDEX IF EXISTS idx_import_rows_tenant;
+        DROP INDEX IF EXISTS idx_filter_sizes_import_row;
+        DROP TABLE IF EXISTS shipment_filter_sizes;
+        DROP TABLE IF EXISTS shipment_import_batches;
+        DROP TABLE IF EXISTS shipment_import_rows;
+
+        CREATE TABLE shipment_import_rows (
+          id INTEGER PRIMARY KEY,
+          filename TEXT,
+          imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          shipment_id TEXT,
+          carrier TEXT,
+          raw_name TEXT NOT NULL,
+          address1 TEXT,
+          address2 TEXT,
+          city TEXT,
+          state TEXT,
+          zip TEXT,
+          ship_date TEXT,
+          custom_field_1 TEXT,
+          matched_tenant_id INTEGER REFERENCES tenants(id),
+          matched_shipment_id INTEGER REFERENCES shipments(id),
+          match_status TEXT NOT NULL,
+          match_score INTEGER NOT NULL DEFAULT 0,
+          match_reason TEXT,
+          matched_fields TEXT,
+          conflicting_fields TEXT,
+          filter_sizes TEXT NOT NULL DEFAULT '[]',
+          reviewed_at TEXT
+        );
+      `);
+    } finally {
+      db.pragma("foreign_keys = ON");
+    }
+  }
+
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.exec(`
+      DROP TABLE IF EXISTS shipment_batches;
+      DROP TABLE IF EXISTS shipment_import_batches;
+      DROP TABLE IF EXISTS shipment_filter_sizes;
+    `);
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+
+  const sequenceTableExists = db
+    .prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_sequence'")
+    .get().count;
+  if (sequenceTableExists) {
+    db.prepare(
+      "DELETE FROM sqlite_sequence WHERE name IN ('shipment_batches', 'shipment_import_batches', 'shipment_filter_sizes', 'shipment_import_rows', 'shipments', 'data_quality_issues')",
+    ).run();
+  }
+
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_properties_property_id
       ON properties(property_id);
@@ -225,8 +299,10 @@ function createSchema(db) {
       ON shipments(property_id, shipment_date);
     CREATE INDEX IF NOT EXISTS idx_shipments_status
       ON shipments(status);
-    CREATE INDEX IF NOT EXISTS idx_shipments_batch_id
-      ON shipments(batch_id);
+    CREATE INDEX IF NOT EXISTS idx_import_rows_status
+      ON shipment_import_rows(match_status);
+    CREATE INDEX IF NOT EXISTS idx_import_rows_tenant
+      ON shipment_import_rows(matched_tenant_id);
   `);
 }
 
@@ -257,6 +333,20 @@ function seedOperationalData(db) {
   // current raw fixtures. Existing shipment rows are left alone.
   const tenants = db.prepare("SELECT * FROM tenants ORDER BY id").all();
   const normalized = normalizeProperties(loadRawProperties(), tenants);
+  const duplicateTenantIds = new Set(normalized.duplicateTenantIds);
+
+  if (duplicateTenantIds.size) {
+    normalized.tenantProperties = normalized.tenantProperties.filter(
+      (assignment) => !duplicateTenantIds.has(assignment.tenant_id),
+    );
+    normalized.unassignedTenantIds = normalized.unassignedTenantIds.filter(
+      (tenantId) => !duplicateTenantIds.has(tenantId),
+    );
+    for (const property of normalized.normalizedProperties) {
+      property.tenant_ids = property.tenant_ids.filter((tenantId) => !duplicateTenantIds.has(tenantId));
+    }
+  }
+
   writeNormalizedPropertiesFile(normalized);
 
   const tx = db.transaction(() => {
@@ -302,6 +392,25 @@ function seedOperationalData(db) {
         details: issue.details,
         resolution: issue.resolution,
       });
+    }
+
+    if (duplicateTenantIds.size) {
+      const deleteImportRows = db.prepare(`
+        DELETE FROM shipment_import_rows
+        WHERE matched_tenant_id = ?
+      `);
+      const deleteShipments = db.prepare("DELETE FROM shipments WHERE tenant_id = ?");
+      const deleteHistoricalShipments = db.prepare("DELETE FROM historical_shipments WHERE tenant_id = ?");
+      const deleteEnrollments = db.prepare("DELETE FROM enrollments WHERE tenant_id = ?");
+      const deleteTenant = db.prepare("DELETE FROM tenants WHERE id = ?");
+
+      for (const tenantId of duplicateTenantIds) {
+        deleteImportRows.run(tenantId);
+        deleteShipments.run(tenantId);
+        deleteHistoricalShipments.run(tenantId);
+        deleteEnrollments.run(tenantId);
+        deleteTenant.run(tenantId);
+      }
     }
 
     db.prepare(`
@@ -397,10 +506,10 @@ function normalizeHistoricalShipments(db) {
 
   const insert = db.prepare(`
     INSERT OR IGNORE INTO shipments
-      (tenant_id, property_id, batch_id, shipment_date, minimum_next_shipment_date,
+      (tenant_id, property_id, shipment_date, minimum_next_shipment_date,
        tracking_number, status, source)
     VALUES
-      (@tenant_id, @property_id, NULL, @shipment_date, @minimum_next_shipment_date,
+      (@tenant_id, @property_id, @shipment_date, @minimum_next_shipment_date,
        @tracking_number, 'historical', 'historical')
   `);
 

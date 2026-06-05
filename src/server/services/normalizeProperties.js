@@ -13,12 +13,11 @@ const { repoRoot } = require("../db");
 const {
   normalizeAddressPart,
   normalizeText,
+  propertyIdFromAddress,
   tenantFullName,
 } = require("../utils/strings");
 
 const DEFAULT_FALLBACK_INTERVAL_DAYS = 90;
-const MISSING_PROPERTY_ID = "missing-property";
-const MISSING_PROPERTY_NAME = "Missing Property";
 
 function slugify(value) {
   return normalizeText(value)
@@ -123,38 +122,44 @@ function normalizeProperties(rawProperties, tenants) {
     }
   }
 
-  const missingProperty = {
-    id: MISSING_PROPERTY_ID,
-    name: MISSING_PROPERTY_NAME,
-    shipment_interval_days: DEFAULT_FALLBACK_INTERVAL_DAYS,
-    tenant_ids: [],
-  };
+  const fallbackPropertiesById = new Map();
   const unassignedTenantIds = [];
 
   // Second pass: every tenant needs an operational property assignment. Missing
-  // JSON assignments all share one explicit missing-property group with 90 days.
+  // JSON assignments receive deterministic address-based fallback properties.
   for (const tenant of tenants) {
     if (tenantToProperty.has(tenant.id)) continue;
 
+    const fallbackPropertyId = propertyIdFromAddress(tenant);
     unassignedTenantIds.push(tenant.id);
-    missingProperty.tenant_ids.push(tenant.id);
+
+    if (!fallbackPropertiesById.has(fallbackPropertyId)) {
+      fallbackPropertiesById.set(fallbackPropertyId, {
+        id: fallbackPropertyId,
+        name: `Fallback: ${tenant.address1 || tenantFullName(tenant)}`,
+        shipment_interval_days: DEFAULT_FALLBACK_INTERVAL_DAYS,
+        tenant_ids: [],
+      });
+    }
+
+    fallbackPropertiesById.get(fallbackPropertyId).tenant_ids.push(tenant.id);
     tenantProperties.push({
       tenant_id: tenant.id,
-      property_id: MISSING_PROPERTY_ID,
-      assignment_source: "missing_property",
-      notes: "Tenant was not present in properties.json; assigned shared missing-property group with 90-day interval.",
+      property_id: fallbackPropertyId,
+      assignment_source: "fallback_address",
+      notes: "Tenant was not present in properties.json; assigned address-based fallback property with 90-day interval.",
     });
 
     dataQualityIssues.push({
       issue_type: "tenant_missing_from_properties_json",
       tenant_id: tenant.id,
-      property_id: MISSING_PROPERTY_ID,
+      property_id: fallbackPropertyId,
       details: `Tenant ${tenant.id} (${tenantFullName(tenant)}) was not assigned to a property in properties.json.`,
-      resolution: `Assigned shared missing-property group ${MISSING_PROPERTY_ID} with ${DEFAULT_FALLBACK_INTERVAL_DAYS}-day interval.`,
+      resolution: `Assigned address-based fallback property ${fallbackPropertyId} with ${DEFAULT_FALLBACK_INTERVAL_DAYS}-day interval.`,
     });
   }
 
-  if (missingProperty.tenant_ids.length) normalizedProperties.push(missingProperty);
+  normalizedProperties.push(...fallbackPropertiesById.values());
 
   const identityGroups = new Map();
   // Third pass: identify duplicate active tenant identities so exports operate
@@ -204,7 +209,7 @@ function writeNormalizedPropertiesFile(result) {
   const payload = {
     version: 1,
     description: "Normalized property shipment intervals and tenant assignments generated from properties.json.",
-    missing_property_interval_days: DEFAULT_FALLBACK_INTERVAL_DAYS,
+    default_fallback_interval_days: DEFAULT_FALLBACK_INTERVAL_DAYS,
     properties: result.normalizedProperties.map((property) => ({
       id: property.id,
       name: property.name,
@@ -221,7 +226,6 @@ function writeNormalizedPropertiesFile(result) {
 
 module.exports = {
   DEFAULT_FALLBACK_INTERVAL_DAYS,
-  MISSING_PROPERTY_ID,
   loadRawProperties,
   normalizeProperties,
   writeNormalizedPropertiesFile,

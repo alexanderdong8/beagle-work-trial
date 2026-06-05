@@ -3,9 +3,9 @@
 /**
  * Shipment export service.
  *
- * Exporting is a write operation: it creates a batch, persists ordered
- * shipments, and then renders a CSV from the persisted batch rows. This avoids
- * having a CSV that cannot be traced back to database state.
+ * Exporting is a write operation: it persists ordered shipments and returns a
+ * CSV for those same rows. There is no separate batch table in this simplified
+ * schema; the shipment rows themselves are the operational record.
  */
 
 const { addDays } = require("../utils/dates");
@@ -15,7 +15,6 @@ const { getEligibility } = require("./eligibilityService");
 const CSV_COLUMNS = [
   "tenant_id",
   "property_id",
-  "batch_id",
   "first_name",
   "last_name",
   "address1",
@@ -37,129 +36,70 @@ function toCsv(rows) {
   return `${lines.join("\n")}\n`;
 }
 
-function getBatchRows(db, batchId) {
-  // Rebuild the CSV from persisted shipment rows so a past export can be
-  // downloaded again without relying on temporary files.
-  return db
-    .prepare(
-      `
-        SELECT
-          s.tenant_id,
-          s.property_id,
-          s.batch_id,
-          t.first_name,
-          t.last_name,
-          t.address1,
-          t.address2,
-          t.city,
-          t.state,
-          t.zip,
-          s.shipment_date,
-          s.minimum_next_shipment_date
-        FROM shipments s
-        JOIN tenants t ON t.id = s.tenant_id
-        WHERE s.batch_id = ?
-        ORDER BY s.id ASC
-      `,
-    )
-    .all(batchId);
-}
-
 function createExportBatch(db, options = {}) {
   const eligibility = getEligibility(db, options);
   const asOf = eligibility.asOf;
   const selected = eligibility.eligible;
+  const exportedAt = new Date().toISOString();
 
   const tx = db.transaction(() => {
-    // Batch is the audit boundary: every shipment row created below points back
-    // to this export run.
-    const batchInfo = db
-      .prepare(
-        `
-          INSERT INTO shipment_batches (as_of_date, status, shipment_count, csv_filename, notes)
-          VALUES (@as_of_date, 'exported', @shipment_count, @csv_filename, @notes)
-        `,
-      )
-      .run({
-        as_of_date: asOf,
-        shipment_count: selected.length,
-        csv_filename: null,
-        notes: "Generated from eligibility export.",
-      });
-
-    const batchId = batchInfo.lastInsertRowid;
-    const csvFilename = `shipment-batch-${batchId}.csv`;
-
-    db.prepare("UPDATE shipment_batches SET csv_filename = ? WHERE id = ?").run(csvFilename, batchId);
-
     // Ordered rows immediately count for cooldown, preventing duplicate exports
     // before the shipping partner returns tracking information.
     const insertShipment = db.prepare(
       `
         INSERT INTO shipments
-          (tenant_id, property_id, batch_id, shipment_date, minimum_next_shipment_date,
+          (tenant_id, property_id, shipment_date, minimum_next_shipment_date,
            tracking_number, status, source)
         VALUES
-          (@tenant_id, @property_id, @batch_id, @shipment_date, @minimum_next_shipment_date,
+          (@tenant_id, @property_id, @shipment_date, @minimum_next_shipment_date,
            NULL, 'ordered', 'export')
       `,
     );
 
+    const rows = [];
     for (const row of selected) {
       insertShipment.run({
         tenant_id: row.tenant_id,
         property_id: row.property_id,
-        batch_id: batchId,
+        shipment_date: asOf,
+        minimum_next_shipment_date: addDays(asOf, row.shipment_interval_days),
+      });
+      rows.push({
+        tenant_id: row.tenant_id,
+        property_id: row.property_id,
+        first_name: row.first_name,
+        last_name: row.last_name,
+        address1: row.address1,
+        address2: row.address2,
+        city: row.city,
+        state: row.state,
+        zip: row.zip,
         shipment_date: asOf,
         minimum_next_shipment_date: addDays(asOf, row.shipment_interval_days),
       });
     }
 
-    return batchId;
+    return rows;
   });
 
-  const batchId = tx();
-  const rows = getBatchRows(db, batchId);
+  const rows = tx();
+  const exportRecord = {
+    as_of_date: asOf,
+    exported_at: exportedAt,
+    shipment_count: rows.length,
+    csv_filename: `shipments-${asOf}.csv`,
+  };
 
   return {
-    batch: getBatch(db, batchId),
+    batch: exportRecord,
+    export: exportRecord,
     csv: toCsv(rows),
     rows,
-  };
-}
-
-function getBatch(db, batchId) {
-  return db.prepare("SELECT * FROM shipment_batches WHERE id = ?").get(batchId);
-}
-
-function listBatches(db) {
-  return db
-    .prepare(
-      `
-        SELECT b.*, COUNT(s.id) AS persisted_shipment_count
-        FROM shipment_batches b
-        LEFT JOIN shipments s ON s.batch_id = b.id
-        GROUP BY b.id
-        ORDER BY b.exported_at DESC, b.id DESC
-      `,
-    )
-    .all();
-}
-
-function getBatchCsv(db, batchId) {
-  const batch = getBatch(db, batchId);
-  if (!batch) return null;
-
-  return {
-    batch,
-    csv: toCsv(getBatchRows(db, batchId)),
   };
 }
 
 module.exports = {
   CSV_COLUMNS,
   createExportBatch,
-  getBatchCsv,
-  listBatches,
   toCsv,
 };

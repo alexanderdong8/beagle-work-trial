@@ -13,6 +13,7 @@ export default function EligibilityPage() {
   const [exporting, setExporting] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [batch, setBatch] = useState(null);
+  const [csv, setCsv] = useState("");
   const [resetResult, setResetResult] = useState(null);
 
   async function shipBatch() {
@@ -25,6 +26,7 @@ export default function EligibilityPage() {
     try {
       const result = await apiPost("/api/exports", { asOf });
       setBatch(result.batch);
+      setCsv(result.csv);
     } catch (err) {
       setError(err);
     } finally {
@@ -38,6 +40,7 @@ export default function EligibilityPage() {
     setResetting(true);
     setError(null);
     setBatch(null);
+    setCsv("");
 
     try {
       setResetResult(await apiPost("/api/reset-demo-state", {}));
@@ -46,6 +49,16 @@ export default function EligibilityPage() {
     } finally {
       setResetting(false);
     }
+  }
+
+  function downloadCsv() {
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = batch?.csv_filename || `shipments-${asOf}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   return (
@@ -76,21 +89,20 @@ export default function EligibilityPage() {
       {resetResult ? (
         <div className="notice notice-muted">
           Reset complete. Removed {resetResult.deleted_export_shipments} exported shipments and{" "}
-          {resetResult.deleted_batches} export batches, plus {resetResult.deleted_import_shipments} imported shipments,{" "}
-          {resetResult.deleted_import_rows} import rows, and {resetResult.deleted_filter_sizes} filter-size rows.
+          {resetResult.deleted_import_shipments} imported shipments, plus {resetResult.deleted_import_rows} import rows.
         </div>
       ) : null}
 
       {batch ? (
         <div className="panel batch-result">
           <div>
-            <p className="eyebrow">Batch #{batch.id}</p>
+            <p className="eyebrow">{batch.as_of_date}</p>
             <h3>{batch.shipment_count} shipments created</h3>
           </div>
-          <a className="primary-button download-button" href={`/api/exports/${batch.id}.csv`}>
+          <button className="primary-button download-button" onClick={downloadCsv} type="button">
             <Download size={17} aria-hidden="true" />
             <span>Download</span>
-          </a>
+          </button>
         </div>
       ) : null}
     </section>

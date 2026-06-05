@@ -1,0 +1,11 @@
+carrier,custom_field_1,ship_date,shipment_id,name,address1,address2,city,state,zip
+UPS,25x16-1/2x1,2026-04-26T08:00:00Z,se-demo-001,Dylan Simonis,768 King Ridge,Apt. 298,West Percy,PA,63952
+UPS,20x20x1 14x20x1,2026-04-26T08:00:00Z,se-demo-002,Zane Crooks,22369 Perry Throughway,Suite 366,Schillertown,CO,89835
+UPS,20x20x1,2026-04-26T08:00:00Z,se-demo-003,German Gerhold,999 Former Willow Drive,Apt. 8,Elyseshire,AZ,62006-6690
+UPS,16x20x1,2026-04-26T08:00:00Z,se-demo-004,Adeline Connelly,318 Elmira Road,Apt. 755,North Carmelofort,PA,35125-9201
+UPS,,2026-04-26T08:00:00Z,se-demo-005,Xiao Will,8117 Tuan Falls,Apt. 525,Ferryland,NY,23150-0342
+UPS,16-20x25x1,2026-04-26T08:00:00Z,se-demo-006,Kizzy O'Keefe,7781 Wilson Mountains,Apt. 269,Port Zachariahshire,OK,06323
+UPS,twenty-by-twenty,2026-04-26T08:00:00Z,se-demo-007,Casey Morgan,1188 Maple Loop,Apt. 4B,Springfield,IL,62704
+UPS,twentyish-by-twenty,2026-04-26T08:00:00Z,se-demo-008,Tomas Murphy,4753 Marline Lakes,Apt. 393,Lake Javier,WA,32442
+UPS,20x,2026-04-26T08:00:00Z,se-demo-009,Roman Stark,10145 Ebert Causeway,Apt. 417,Howeshire,MO,36468-7588
+UPS,18x20x1,2026-04-26T08:00:00Z,se-demo-010,Lavonia Schumm,,Suite 752,New Marry,VA,70314

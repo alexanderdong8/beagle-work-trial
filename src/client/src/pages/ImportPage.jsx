@@ -87,6 +87,7 @@ export default function ImportPage() {
   const [resetResult, setResetResult] = useState(null);
   const [dismissingId, setDismissingId] = useState(null);
   const [resultTab, setResultTab] = useState("matched");
+  const [selectedFile, setSelectedFile] = useState(null);
 
   const loadLatest = useCallback(async () => {
     setError(null);
@@ -105,11 +106,19 @@ export default function ImportPage() {
   }, [loadLatest]);
 
   async function importFile() {
+    if (!selectedFile) {
+      setError(new Error("Choose a CSV file before importing."));
+      return;
+    }
+
     setImporting(true);
     setError(null);
     setResetResult(null);
     try {
-      setData(await apiPost("/api/imports/shipstation", {}));
+      setData(await apiPost("/api/imports/shipstation", {
+        filename: selectedFile.name,
+        csvText: await selectedFile.text(),
+      }));
     } catch (err) {
       setError(err);
     } finally {
@@ -151,13 +160,21 @@ export default function ImportPage() {
           <h2>Match shipments and review flags</h2>
         </div>
         <div className="control-row">
+          <label>
+            <span>CSV file</span>
+            <input
+              accept=".csv,text/csv"
+              onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
+              type="file"
+            />
+          </label>
           <button className="icon-button" disabled={resetting} onClick={resetDemoState} type="button">
             <RotateCcw size={17} aria-hidden="true" />
             <span>{resetting ? "Resetting" : "Reset Demo"}</span>
           </button>
-          <button className="primary-button" disabled={importing} onClick={importFile} type="button">
+          <button className="primary-button" disabled={importing || !selectedFile} onClick={importFile} type="button">
             <FileInput size={17} aria-hidden="true" />
-            <span>{importing ? "Importing" : "Import ShipStation File"}</span>
+            <span>{importing ? "Importing" : "Import Selected CSV"}</span>
           </button>
         </div>
       </div>
@@ -167,7 +184,7 @@ export default function ImportPage() {
       {resetResult ? (
         <div className="notice notice-muted">
           Reset complete. Removed {resetResult.deleted_import_shipments} imported shipments,{" "}
-          {resetResult.deleted_import_rows} import rows, and {resetResult.deleted_filter_sizes} filter-size rows.
+          and {resetResult.deleted_import_rows} import rows.
         </div>
       ) : null}
 
